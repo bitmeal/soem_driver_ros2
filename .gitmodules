@@ -1,0 +1,3 @@
+[submodule "soem"]
+	path = soem_driver/soem/soem
+	url = https://github.com/OpenEtherCATsociety/SOEM
