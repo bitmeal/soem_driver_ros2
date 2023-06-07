@@ -1,0 +1,9 @@
+<library path="soem_driver">
+  <class name="soem_driver/SOEMDriver"
+         type="soem_driver::SOEMDriver"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>
+        SOEM based EtherCAT Driver for ros2_control
+    </description>
+  </class>
+</library>

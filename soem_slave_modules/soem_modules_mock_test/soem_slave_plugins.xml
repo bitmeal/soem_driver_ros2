@@ -1,0 +1,5 @@
+<library path="soem_modules_mock_test">
+  <class name="soem_slave_modules/soem_mock_module" type="soem_slave_modules::SOEMMockModule" base_class_type="soem_slave_interface::SOEMSlave">
+    <description>EtherCAT Coupler.</description>
+  </class>
+</library>
