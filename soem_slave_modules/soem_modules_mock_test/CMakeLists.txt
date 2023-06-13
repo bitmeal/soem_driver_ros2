@@ -61,6 +61,15 @@ if(BUILD_TESTING)
   )
   set_property(TARGET test_load_soem_mock_module PROPERTY CXX_STANDARD 20)
 
+  # test basic behavior
+  ament_add_gmock(test_soem_mock_module test/test_soem_mock_module.cpp)
+  ament_target_dependencies(test_soem_mock_module
+    rclcpp
+    pluginlib
+    soem_slave_interface
+  )
+  set_property(TARGET test_soem_mock_module PROPERTY CXX_STANDARD 20)
+
 endif()
 
 

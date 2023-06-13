@@ -29,6 +29,18 @@ namespace soem_driver
 
 namespace soem_slave_interface
 {
+    template <typename I>
+    std::vector<I> list_initialize_non_copyable_interface(const std::initializer_list<std::tuple<std::string, std::string, double *>>& params)
+    {
+        std::vector<I> target;
+        std::transform(params.begin(), params.end(), std::back_inserter(target),
+                       [](auto pack)
+                       {
+                           return std::make_from_tuple<I>(pack);
+                       });
+        return target;
+    };
+
     class SOEMSlave
     {
         // allow private member access from driver to setup buffers
@@ -85,7 +97,7 @@ namespace soem_slave_interface
         };
 
     public:
-        virtual bool init(std::unordered_map<std::string, std::string> parameters){ return true; };
+        virtual bool init(std::unordered_map<std::string, std::string> parameters) { return true; };
 
         virtual std::vector<hardware_interface::StateInterface> export_state_interfaces() = 0;
         virtual std::vector<hardware_interface::CommandInterface> export_command_interfaces() = 0;

@@ -1,10 +1,5 @@
 #include "soem_driver/soem_driver.hpp"
 
-extern "C"
-{
-#include "soem/ethercat.h"
-}
-
 #include "rclcpp/rclcpp.hpp"
 #include "yaml-cpp/yaml.h"
 
@@ -17,7 +12,7 @@ namespace soem_driver
 
     SOEMDriver::~SOEMDriver(){};
 
-    // based on / taken from: https://github.com/ros-controls/ros2_control/blob/master/hardware_interface/src/component_parser.cpp
+    // URDF parsing based on / taken from: https://github.com/ros-controls/ros2_control/blob/master/hardware_interface/src/component_parser.cpp
 
     /// Gets value of the text between tags.
     std::string SOEMDriver::_get_text_for_element(
@@ -294,13 +289,27 @@ namespace soem_driver
         // load slave modules
         for (auto &&slave : slave_infos)
         {
-            auto slave_plugin = slave_loader_.createSharedInstance(slave.plugin_name);
-            if (!slave_plugin->init(slave.parameters))
+            try
             {
-                RCLCPP_ERROR(rclcpp::get_logger(__logger_name), "failed to load plugin %s for slave %s", slave.plugin_name.c_str(), slave.name.c_str());
-                return CallbackReturn::FAILURE;
+                auto slave_plugin = slave_loader_.createSharedInstance(slave.plugin_name);
+                if (!slave_plugin->init(slave.parameters))
+                {
+                    RCLCPP_ERROR(rclcpp::get_logger(__logger_name), "failed to load plugin %s for slave %s", slave.plugin_name.c_str(), slave.name.c_str());
+                    return CallbackReturn::FAILURE;
+                }
+
+                slaves[slave.name] = slave_plugin;
+                RCLCPP_INFO(rclcpp::get_logger(__logger_name), "successfully loaded plugin %s for slave %s", slave.plugin_name.c_str(), slave.name.c_str());
+            }
+            catch (const std::exception &e)
+            {
+                RCLCPP_ERROR(rclcpp::get_logger(__logger_name), "failed to load plugin %s for slave %s; threw: %s", slave.plugin_name.c_str(), slave.name.c_str(), e.what());
             }
         }
+
+        // ECClaimsResolver claims_resolver{info, slaves, joint_claims};
+        claims_resolver.__logger_name = __logger_name;
+        claims_resolver.init(slaves, joint_claims);
 
         return CallbackReturn::SUCCESS;
     };
@@ -312,11 +321,12 @@ namespace soem_driver
 
     std::vector<hardware_interface::StateInterface> SOEMDriver::export_state_interfaces()
     {
-        return {};
+        return claims_resolver.export_state_interfaces();
     };
+
     std::vector<hardware_interface::CommandInterface> SOEMDriver::export_command_interfaces()
     {
-        return {};
+        return claims_resolver.export_command_interfaces();
     };
 
     CallbackReturn SOEMDriver::on_activate(const rclcpp_lifecycle::State &previous_state)

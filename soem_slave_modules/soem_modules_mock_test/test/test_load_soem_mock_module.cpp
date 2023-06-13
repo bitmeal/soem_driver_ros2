@@ -11,15 +11,7 @@ TEST(TestLoadSOEMMockModule, load_plugin)
       "soem_slave_interface", "soem_slave_interface::SOEMSlave"};
 
   std::shared_ptr<soem_slave_interface::SOEMSlave> module;
-  // ASSERT_NO_THROW(module = loader.createSharedInstance("soem_slave_modules/soem_mock_module"));
-  try
-  {
-    module = loader.createSharedInstance("soem_slave_modules/soem_mock_module");
-  }
-  catch (const std::exception &e)
-  {
-    std::cerr << e.what() << '\n';
-  }
 
+  ASSERT_NO_THROW(module = loader.createSharedInstance("soem_slave_modules/soem_mock_module"));
   ASSERT_NO_THROW(module->init({}));
 }

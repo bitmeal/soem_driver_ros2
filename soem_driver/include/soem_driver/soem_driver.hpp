@@ -11,6 +11,7 @@
 #include <pluginlib/class_loader.hpp>
 
 #include "soem_slave_interface/soem_slave.hpp"
+#include "soem_driver/claims_resolver.hpp"
 
 using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
 
@@ -75,12 +76,15 @@ namespace soem_driver
     private:
         std::string __logger_name;
 
-        pluginlib::ClassLoader<soem_slave_interface::SOEMSlave> slave_loader_{
-            "soem_slave_interface", "soem_slave_interface::SOEMSlave"};
+        ECClaimsResolver claims_resolver;
+        pluginlib::ClassLoader<soem_slave_interface::SOEMSlave>
+            slave_loader_{
+                "soem_slave_interface", "soem_slave_interface::SOEMSlave"};
 
-
-        std::vector<std::shared_ptr<soem_slave_interface::SOEMSlave>> slaves;
+        // map from: <slave name> --> <slave plugin instance>
+        std::unordered_map<std::string, std::shared_ptr<soem_slave_interface::SOEMSlave>> slaves;
         std::vector<EthercatSlaveInfo> slave_infos;
+        // map from: <joint> --> [<claim>]
         std::unordered_map<std::string, std::vector<std::string>> joint_claims;
         std::string ec_interface;
 
@@ -93,8 +97,8 @@ namespace soem_driver
         std::unordered_map<std::string, std::string> _parse_parameters_from_xml(
             const tinyxml2::XMLElement *params_it);
         const tinyxml2::XMLElement *_parse_hardware_from_doc(tinyxml2::XMLDocument &doc, const std::string name);
-        std::vector<EthercatSlaveInfo> _parse_slaves_from_hardware(const tinyxml2::XMLElement* hardware);
-        EthercatSlaveInfo _parse_slave_info(const tinyxml2::XMLElement* slave);
+        std::vector<EthercatSlaveInfo> _parse_slaves_from_hardware(const tinyxml2::XMLElement *hardware);
+        EthercatSlaveInfo _parse_slave_info(const tinyxml2::XMLElement *slave);
         std::unordered_map<std::string, std::vector<std::string>> _parse_joint_claims(const hardware_interface::HardwareInfo &info);
         void parse_hardware_info(const hardware_interface::HardwareInfo &info);
     };

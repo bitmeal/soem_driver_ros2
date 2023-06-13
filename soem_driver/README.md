@@ -166,6 +166,10 @@ Claims may be consumed by joints in three ways:
 
 Only command and state interfaces configured for a joint (in URDF) will be exported to the resource manager. Thus, if multiple claims requested by a joint provide a (e.g. `position` state-) interface, the first one, in order as specified, will be used.
 
+### command mode switches: mapping to slaves
+TODO: implement interface and "resolver"
+
+
 ## implementing a slave driver module
 Derive from `soem_slave_interface::SOEMSlave`.
 
@@ -179,7 +183,6 @@ Sequence of method calls throughout lifecycle, aligned to the lifecycle of the S
 
 
 When initialized and while operating, the `read()` and `write()` methods will be called continuously. Use them to map and transform the data between `RxPDO` & `TxPDO` members and the exported state and command interfaces. When necessary, you may send mailbox messages to your slave by calling `schedule_Mbx_send(msg, callback)`, if callback is given, we expect the slave to respond with a mailbox message itself and call the callback function upon reception.
-
 
 
 ## References

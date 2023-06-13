@@ -39,7 +39,7 @@ TEST(TestLoadSOEMDriver, load_generic_system_configured_no_joints)
     <hardware>
       <plugin>soem_driver/SOEMDriver</plugin>
       <ec_interface>eth1</ec_interface>
-      <ec_slave name="controller_0">
+      <ec_slave name="module_0">
           <alias>0</alias>
           <position>0</position>
           <plugin>soem_slave_modules/soem_mock_module</plugin>
@@ -69,28 +69,35 @@ TEST(TestLoadSOEMDriver, load_generic_system_configured)
     <hardware>
       <plugin>soem_driver/SOEMDriver</plugin>
       <ec_interface>eth1</ec_interface>
-      <ec_slave name="controller_0">
+      <ec_slave name="module_0">
           <alias>0</alias>
           <position>0</position>
+          <plugin>soem_slave_modules/soem_mock_module</plugin>
+      </ec_slave>
+      <ec_slave name="module_1">
+          <alias>0</alias>
+          <position>1</position>
           <plugin>soem_slave_modules/soem_mock_module</plugin>
       </ec_slave>
     </hardware>
 
     <joint name="joint_0">
-        <param name="ec_claims">controller_0/drive_0</param>
+        <param name="ec_claims">module_0/joint_unit</param>
     </joint>
     <joint name="joint_1">
         <param name="ec_claims">
           [
-            controller_0/drive_1,
-            controller_n/feedback_0
+            module_0/sensor_unit,
+            module_1/actuator_unit
           ]
         </param>
     </joint>
     <joint name="joint_2">
         <param name="ec_claims">
-            - controller_2/drive_0
-            - controller_2/feedback_0
+            - module_1/sensor_unit/state/position
+            - module_1/sensor_unit/state/velocity
+            - module_1/sensor_unit/state/effort
+            - module_1/joint_unit
         </param>
     </joint>
   </ros2_control>
