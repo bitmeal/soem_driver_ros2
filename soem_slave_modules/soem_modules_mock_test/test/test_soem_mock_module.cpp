@@ -5,14 +5,14 @@
 #include <rclcpp/time.hpp>
 #include <pluginlib/class_loader.hpp>
 
-#include "soem_slave_interface/soem_slave.hpp"
+#include "soem_driver_slave_interface/soem_driver_slave.hpp"
 
 TEST(TestSOEMMockModuleInterface, call_init)
 {
-  pluginlib::ClassLoader<soem_slave_interface::SOEMSlave> loader{
-      "soem_slave_interface", "soem_slave_interface::SOEMSlave"};
+  pluginlib::ClassLoader<soem_driver_slave_interface::SOEMDriverSlave> loader{
+      "soem_driver_slave_interface", "soem_driver_slave_interface::SOEMDriverSlave"};
 
-  std::shared_ptr<soem_slave_interface::SOEMSlave> module;
+  std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave> module;
   ASSERT_NO_THROW(module = loader.createSharedInstance("soem_slave_modules/soem_mock_module"));
 
   ASSERT_NO_THROW(module->init({}));
@@ -20,10 +20,10 @@ TEST(TestSOEMMockModuleInterface, call_init)
 
 TEST(TestSOEMMockModuleInterface, call_export_state_interfaces)
 {
-  pluginlib::ClassLoader<soem_slave_interface::SOEMSlave> loader{
-      "soem_slave_interface", "soem_slave_interface::SOEMSlave"};
+  pluginlib::ClassLoader<soem_driver_slave_interface::SOEMDriverSlave> loader{
+      "soem_driver_slave_interface", "soem_driver_slave_interface::SOEMDriverSlave"};
 
-  std::shared_ptr<soem_slave_interface::SOEMSlave> module;
+  std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave> module;
   ASSERT_NO_THROW(module = loader.createSharedInstance("soem_slave_modules/soem_mock_module"));
 
   ASSERT_NO_THROW(module->export_state_interfaces());
@@ -31,10 +31,10 @@ TEST(TestSOEMMockModuleInterface, call_export_state_interfaces)
 
 TEST(TestSOEMMockModuleInterface, call_export_command_interfaces)
 {
-  pluginlib::ClassLoader<soem_slave_interface::SOEMSlave> loader{
-      "soem_slave_interface", "soem_slave_interface::SOEMSlave"};
+  pluginlib::ClassLoader<soem_driver_slave_interface::SOEMDriverSlave> loader{
+      "soem_driver_slave_interface", "soem_driver_slave_interface::SOEMDriverSlave"};
 
-  std::shared_ptr<soem_slave_interface::SOEMSlave> module;
+  std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave> module;
   ASSERT_NO_THROW(module = loader.createSharedInstance("soem_slave_modules/soem_mock_module"));
 
   ASSERT_NO_THROW(module->export_command_interfaces());
@@ -42,10 +42,10 @@ TEST(TestSOEMMockModuleInterface, call_export_command_interfaces)
 
 TEST(TestSOEMMockModuleInterface, call_configure)
 {
-  pluginlib::ClassLoader<soem_slave_interface::SOEMSlave> loader{
-      "soem_slave_interface", "soem_slave_interface::SOEMSlave"};
+  pluginlib::ClassLoader<soem_driver_slave_interface::SOEMDriverSlave> loader{
+      "soem_driver_slave_interface", "soem_driver_slave_interface::SOEMDriverSlave"};
 
-  std::shared_ptr<soem_slave_interface::SOEMSlave> module;
+  std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave> module;
   ASSERT_NO_THROW(module = loader.createSharedInstance("soem_slave_modules/soem_mock_module"));
 
   ASSERT_NO_THROW(module->configure(0x00, 0x00, 0x00, {}));
@@ -53,21 +53,21 @@ TEST(TestSOEMMockModuleInterface, call_configure)
 
 TEST(TestSOEMMockModuleInterface, call_setup_SDO_hook)
 {
-  pluginlib::ClassLoader<soem_slave_interface::SOEMSlave> loader{
-      "soem_slave_interface", "soem_slave_interface::SOEMSlave"};
+  pluginlib::ClassLoader<soem_driver_slave_interface::SOEMDriverSlave> loader{
+      "soem_driver_slave_interface", "soem_driver_slave_interface::SOEMDriverSlave"};
 
-  std::shared_ptr<soem_slave_interface::SOEMSlave> module;
+  std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave> module;
   ASSERT_NO_THROW(module = loader.createSharedInstance("soem_slave_modules/soem_mock_module"));
 
-  ASSERT_NO_THROW(module->setup_SDO_hook(soem_slave_interface::SOEMSlave::SDOwrite_t{}));
+  ASSERT_NO_THROW(module->setup_SDO_hook(soem_driver::SDOwrite_t{}));
 }
 
 TEST(TestSOEMMockModuleInterface, call_read)
 {
-  pluginlib::ClassLoader<soem_slave_interface::SOEMSlave> loader{
-      "soem_slave_interface", "soem_slave_interface::SOEMSlave"};
+  pluginlib::ClassLoader<soem_driver_slave_interface::SOEMDriverSlave> loader{
+      "soem_driver_slave_interface", "soem_driver_slave_interface::SOEMDriverSlave"};
 
-  std::shared_ptr<soem_slave_interface::SOEMSlave> module;
+  std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave> module;
   ASSERT_NO_THROW(module = loader.createSharedInstance("soem_slave_modules/soem_mock_module"));
 
   ASSERT_NO_THROW(module->read(rclcpp::Time(0), rclcpp::Duration(0, 0)));
@@ -75,10 +75,10 @@ TEST(TestSOEMMockModuleInterface, call_read)
 
 TEST(TestSOEMMockModuleInterface, call_write)
 {
-  pluginlib::ClassLoader<soem_slave_interface::SOEMSlave> loader{
-      "soem_slave_interface", "soem_slave_interface::SOEMSlave"};
+  pluginlib::ClassLoader<soem_driver_slave_interface::SOEMDriverSlave> loader{
+      "soem_driver_slave_interface", "soem_driver_slave_interface::SOEMDriverSlave"};
 
-  std::shared_ptr<soem_slave_interface::SOEMSlave> module;
+  std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave> module;
   ASSERT_NO_THROW(module = loader.createSharedInstance("soem_slave_modules/soem_mock_module"));
 
   ASSERT_NO_THROW(module->write(rclcpp::Time(0), rclcpp::Duration(0, 0)));
@@ -86,10 +86,10 @@ TEST(TestSOEMMockModuleInterface, call_write)
 
 TEST(TestSOEMMockModuleData, export_state_interfaces)
 {
-  pluginlib::ClassLoader<soem_slave_interface::SOEMSlave> loader{
-      "soem_slave_interface", "soem_slave_interface::SOEMSlave"};
+  pluginlib::ClassLoader<soem_driver_slave_interface::SOEMDriverSlave> loader{
+      "soem_driver_slave_interface", "soem_driver_slave_interface::SOEMDriverSlave"};
 
-  std::shared_ptr<soem_slave_interface::SOEMSlave> module;
+  std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave> module;
   ASSERT_NO_THROW(module = loader.createSharedInstance("soem_slave_modules/soem_mock_module"));
 
   std::vector<hardware_interface::StateInterface> state_interfaces;
@@ -115,10 +115,10 @@ TEST(TestSOEMMockModuleData, export_state_interfaces)
 
 TEST(TestSOEMMockModuleData, read_state_interfaces)
 {
-  pluginlib::ClassLoader<soem_slave_interface::SOEMSlave> loader{
-      "soem_slave_interface", "soem_slave_interface::SOEMSlave"};
+  pluginlib::ClassLoader<soem_driver_slave_interface::SOEMDriverSlave> loader{
+      "soem_driver_slave_interface", "soem_driver_slave_interface::SOEMDriverSlave"};
 
-  std::shared_ptr<soem_slave_interface::SOEMSlave> module;
+  std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave> module;
   ASSERT_NO_THROW(module = loader.createSharedInstance("soem_slave_modules/soem_mock_module"));
 
   std::vector<hardware_interface::StateInterface> state_interfaces;
@@ -130,10 +130,10 @@ TEST(TestSOEMMockModuleData, read_state_interfaces)
 
 TEST(TestSOEMMockModuleData, export_command_interfaces)
 {
-  pluginlib::ClassLoader<soem_slave_interface::SOEMSlave> loader{
-      "soem_slave_interface", "soem_slave_interface::SOEMSlave"};
+  pluginlib::ClassLoader<soem_driver_slave_interface::SOEMDriverSlave> loader{
+      "soem_driver_slave_interface", "soem_driver_slave_interface::SOEMDriverSlave"};
 
-  std::shared_ptr<soem_slave_interface::SOEMSlave> module;
+  std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave> module;
   ASSERT_NO_THROW(module = loader.createSharedInstance("soem_slave_modules/soem_mock_module"));
 
   std::vector<hardware_interface::CommandInterface> command_interfaces;
@@ -160,10 +160,10 @@ TEST(TestSOEMMockModuleData, export_command_interfaces)
 
 TEST(TestSOEMMockModuleData, read_command_interfaces)
 {
-  pluginlib::ClassLoader<soem_slave_interface::SOEMSlave> loader{
-      "soem_slave_interface", "soem_slave_interface::SOEMSlave"};
+  pluginlib::ClassLoader<soem_driver_slave_interface::SOEMDriverSlave> loader{
+      "soem_driver_slave_interface", "soem_driver_slave_interface::SOEMDriverSlave"};
 
-  std::shared_ptr<soem_slave_interface::SOEMSlave> module;
+  std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave> module;
   ASSERT_NO_THROW(module = loader.createSharedInstance("soem_slave_modules/soem_mock_module"));
 
   std::vector<hardware_interface::CommandInterface> command_interfaces;
@@ -175,10 +175,10 @@ TEST(TestSOEMMockModuleData, read_command_interfaces)
 
 TEST(TestSOEMMockModuleData, write_command_interfaces)
 {
-  pluginlib::ClassLoader<soem_slave_interface::SOEMSlave> loader{
-      "soem_slave_interface", "soem_slave_interface::SOEMSlave"};
+  pluginlib::ClassLoader<soem_driver_slave_interface::SOEMDriverSlave> loader{
+      "soem_driver_slave_interface", "soem_driver_slave_interface::SOEMDriverSlave"};
 
-  std::shared_ptr<soem_slave_interface::SOEMSlave> module;
+  std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave> module;
   ASSERT_NO_THROW(module = loader.createSharedInstance("soem_slave_modules/soem_mock_module"));
 
   std::vector<hardware_interface::CommandInterface> command_interfaces;

@@ -171,7 +171,7 @@ TODO: implement interface and "resolver"
 
 
 ## implementing a slave driver module
-Derive from `soem_slave_interface::SOEMSlave`.
+Derive from `soem_driver_slave_interface::SOEMDriverSlave`.
 
 Sequence of method calls throughout lifecycle, aligned to the lifecycle of the SOEM driver hardware interface; see [1,2]. *State and command interfaces have to be exported prior to initialization and knowledge of actual revision number of the slave, as bus access is only allowed in `on_configure()` hook of the SOEM driver.*
 * default constructor

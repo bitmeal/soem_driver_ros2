@@ -1,6 +1,6 @@
 #include <cmath>
 
-#include "soem_slave_interface/soem_slave.hpp"
+#include "soem_driver_slave_interface/soem_driver_slave.hpp"
 #include "rclcpp/rclcpp.hpp"
 
 namespace soem_slave_modules
@@ -8,7 +8,7 @@ namespace soem_slave_modules
     // TODO(bitmeal): add mock component parameters and state mirroring,
     // as in: https://control.ros.org/master/doc/ros2_control/hardware_interface/doc/mock_components_userdoc.html
 
-    class SOEMMockModule : public soem_slave_interface::SOEMSlave
+    class SOEMMockModule : public soem_driver_slave_interface::SOEMDriverSlave
     {
         std::vector<double> state_interfaces;
         std::vector<double> command_interfaces;
@@ -40,7 +40,7 @@ namespace soem_slave_modules
             RCLCPP_INFO(rclcpp::get_logger("soem_slave_modules/soem_mock_module"), "soem_mock_module - call to: %s", __FUNCTION__);
 
             command_interfaces.resize(6, NAN);
-            return soem_slave_interface::list_initialize_non_copyable_interface<hardware_interface::CommandInterface>(
+            return soem_driver::list_initialize_non_copyable_interface<hardware_interface::CommandInterface>(
                 {{"joint_unit", "position", &command_interfaces[0]},
                  {"joint_unit", "velocity", &command_interfaces[1]},
                  {"joint_unit", "effort", &command_interfaces[2]},
@@ -59,7 +59,7 @@ namespace soem_slave_modules
             RCLCPP_INFO(rclcpp::get_logger("soem_slave_modules/soem_mock_module"), "soem_mock_module - call to: %s", __FUNCTION__);
         };
 
-        virtual void setup_SDO_hook(SDOwrite_t SDOwrite)
+        virtual void setup_SDO_hook(soem_driver::SDOwrite_t SDOwrite)
         {
             RCLCPP_INFO(rclcpp::get_logger("soem_slave_modules/soem_mock_module"), "soem_mock_module - call to: %s", __FUNCTION__);
         };
@@ -80,4 +80,4 @@ namespace soem_slave_modules
 #include "pluginlib/class_list_macros.hpp"
 
 PLUGINLIB_EXPORT_CLASS(
-    soem_slave_modules::SOEMMockModule, soem_slave_interface::SOEMSlave)
+    soem_slave_modules::SOEMMockModule, soem_driver_slave_interface::SOEMDriverSlave)

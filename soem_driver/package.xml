@@ -13,7 +13,8 @@
   <depend>pluginlib</depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_lifecycle</depend>
-  <depend>soem_slave_interface</depend>
+  <depend>soem_driver_common</depend>
+  <depend>soem_driver_slave_interface</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

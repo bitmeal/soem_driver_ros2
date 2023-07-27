@@ -113,7 +113,7 @@ namespace soem_driver
         return hardware_it;
     }
 
-    SOEMDriver::EthercatSlaveInfo SOEMDriver::_parse_slave_info(const tinyxml2::XMLElement *slave)
+    SOEMDriver::EcSlavePluginInfo SOEMDriver::_parse_slave_info(const tinyxml2::XMLElement *slave)
     {
         const auto alias_it = slave->FirstChildElement("alias");
         const auto position_it = slave->FirstChildElement("position");
@@ -137,9 +137,9 @@ namespace soem_driver
             _parse_parameters_from_xml(slave->FirstChildElement("param"))};
     };
 
-    std::vector<SOEMDriver::EthercatSlaveInfo> SOEMDriver::_parse_slaves_from_hardware(const tinyxml2::XMLElement *hardware)
+    std::vector<SOEMDriver::EcSlavePluginInfo> SOEMDriver::_parse_slaves_from_hardware(const tinyxml2::XMLElement *hardware)
     {
-        std::vector<EthercatSlaveInfo> slaves;
+        std::vector<EcSlavePluginInfo> slaves;
 
         const auto *ec_slave_it = hardware->FirstChildElement("ec_slave");
         while (ec_slave_it)

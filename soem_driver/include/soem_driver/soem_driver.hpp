@@ -10,7 +10,10 @@
 #include "hardware_interface/system_interface.hpp"
 #include <pluginlib/class_loader.hpp>
 
-#include "soem_slave_interface/soem_slave.hpp"
+
+#include "soem_driver_common/soem_driver_common.hpp"
+#include "soem_driver_slave_interface/soem_driver_slave.hpp"
+
 #include "soem_driver/claims_resolver.hpp"
 
 using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
@@ -20,7 +23,7 @@ namespace soem_driver
     class SOEMDriver : public hardware_interface::SystemInterface
     {
     public:
-        typedef struct EthercatSlaveInfo
+        typedef struct EcSlavePluginInfo
         {
             std::string name;
             int alias;
@@ -28,27 +31,8 @@ namespace soem_driver
             std::string plugin_name;
             std::unordered_map<std::string, std::string> parameters;
             // std::vector<std::string> claims;
-        } EthercatSlaveInfo;
+        } EcSlavePluginInfo;
 
-        // typedef struct SlaveClaimInfo
-        // {
-        //     std::string slave_name;
-        //     std::string claim_name;
-
-        //     bool operator==(const SlaveClaimInfo &cmp) const
-        //     {
-        //         return (slave_name == cmp.slave_name && claim_name == cmp.slave_name);
-        //     }
-        // } SlaveClaimInfo;
-        // typedef struct _SlaveClaimInfo_Hasher
-        // {
-        //     std::size_t operator()(const SlaveClaimInfo &c) const
-        //     {
-        //         return std::hash<std::string>()(c.slave_name + "/" + c.claim_name);
-        //     }
-        // } _SlaveClaimInfo_Hasher;
-
-        // std::unordered_map<SlaveClaimInfo, bool, _SlaveClaimInfo_Hasher> claims_map;
 
         SOEMDriver();
         ~SOEMDriver();
@@ -77,13 +61,13 @@ namespace soem_driver
         std::string __logger_name;
 
         ECClaimsResolver claims_resolver;
-        pluginlib::ClassLoader<soem_slave_interface::SOEMSlave>
+        pluginlib::ClassLoader<soem_driver_slave_interface::SOEMDriverSlave>
             slave_loader_{
-                "soem_slave_interface", "soem_slave_interface::SOEMSlave"};
+                "soem_driver_slave_interface", "soem_driver_slave_interface::SOEMDriverSlave"};
 
         // map from: <slave name> --> <slave plugin instance>
-        std::unordered_map<std::string, std::shared_ptr<soem_slave_interface::SOEMSlave>> slaves;
-        std::vector<EthercatSlaveInfo> slave_infos;
+        std::unordered_map<std::string, std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave>> slaves;
+        std::vector<EcSlavePluginInfo> slave_infos;
         // map from: <joint> --> [<claim>]
         std::unordered_map<std::string, std::vector<std::string>> joint_claims;
         std::string ec_interface;
@@ -97,8 +81,8 @@ namespace soem_driver
         std::unordered_map<std::string, std::string> _parse_parameters_from_xml(
             const tinyxml2::XMLElement *params_it);
         const tinyxml2::XMLElement *_parse_hardware_from_doc(tinyxml2::XMLDocument &doc, const std::string name);
-        std::vector<EthercatSlaveInfo> _parse_slaves_from_hardware(const tinyxml2::XMLElement *hardware);
-        EthercatSlaveInfo _parse_slave_info(const tinyxml2::XMLElement *slave);
+        std::vector<EcSlavePluginInfo> _parse_slaves_from_hardware(const tinyxml2::XMLElement *hardware);
+        EcSlavePluginInfo _parse_slave_info(const tinyxml2::XMLElement *slave);
         std::unordered_map<std::string, std::vector<std::string>> _parse_joint_claims(const hardware_interface::HardwareInfo &info);
         void parse_hardware_info(const hardware_interface::HardwareInfo &info);
     };

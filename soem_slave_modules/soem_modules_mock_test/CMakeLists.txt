@@ -7,8 +7,7 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
-find_package(soem_slave_interface REQUIRED)
-# find_package(soem_driver REQUIRED)
+find_package(soem_driver_slave_interface REQUIRED)
 
 
 file(GLOB_RECURSE PLUGINS_SRC src/*.cpp)
@@ -22,12 +21,11 @@ ament_target_dependencies(
   ${PROJECT_NAME}
   rclcpp
   pluginlib
-  soem_slave_interface
-  # soem_driver
+  soem_driver_slave_interface
 )
 
 
-pluginlib_export_plugin_description_file(soem_slave_interface soem_slave_plugins.xml)
+pluginlib_export_plugin_description_file(soem_driver_slave_interface soem_slave_plugins.xml)
 
 install(
   TARGETS ${PROJECT_NAME}
@@ -57,7 +55,7 @@ if(BUILD_TESTING)
   ament_add_gmock(test_load_soem_mock_module test/test_load_soem_mock_module.cpp)
   ament_target_dependencies(test_load_soem_mock_module
     pluginlib
-    soem_slave_interface
+    soem_driver_slave_interface
   )
   set_property(TARGET test_load_soem_mock_module PROPERTY CXX_STANDARD 20)
 
@@ -66,7 +64,7 @@ if(BUILD_TESTING)
   ament_target_dependencies(test_soem_mock_module
     rclcpp
     pluginlib
-    soem_slave_interface
+    soem_driver_slave_interface
   )
   set_property(TARGET test_soem_mock_module PROPERTY CXX_STANDARD 20)
 

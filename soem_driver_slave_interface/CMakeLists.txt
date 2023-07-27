@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.12)
-project(soem_slave_interface)
+project(soem_driver_slave_interface)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -9,7 +9,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(rclcpp REQUIRED)
-# find_package(soem_driver REQUIRED)
+find_package(soem_driver_common REQUIRED)
 
 ament_export_include_directories(
   include
@@ -31,6 +31,7 @@ target_link_libraries(${PROJECT_NAME} INTERFACE
   hardware_interface
   rclcpp
   # soem_driver
+  soem_driver_common
 )
 
 # ament_target_dependencies(
@@ -66,5 +67,6 @@ ament_export_include_directories(
 ament_export_dependencies(
   rclcpp
   hardware_interface
+  soem_driver_common
 )
 ament_package()

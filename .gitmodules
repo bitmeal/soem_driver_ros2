@@ -1,3 +1,6 @@
 [submodule "soem"]
 	path = soem_driver/soem/soem
 	url = https://github.com/OpenEtherCATsociety/SOEM
+[submodule "cap-grant-ld"]
+	path = soem_ethercat_grant/cap-grant-ld/cap-grant-ld
+	url = https://github.com/bitmeal/cap-grant-ld

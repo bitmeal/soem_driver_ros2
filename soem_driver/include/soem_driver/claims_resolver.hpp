@@ -17,7 +17,7 @@
 
 #include "hardware_interface/system_interface.hpp"
 
-#include "soem_slave_interface/soem_slave.hpp"
+#include "soem_driver_slave_interface/soem_driver_slave.hpp"
 
 namespace soem_driver
 {
@@ -55,14 +55,14 @@ namespace soem_driver
         std::unordered_map<std::string, std::pair<std::string, std::string>> joint_command_interface_map;
 
         // references to master structures
-        std::unordered_map<std::string, std::shared_ptr<soem_slave_interface::SOEMSlave>> slaves;
+        std::unordered_map<std::string, std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave>> slaves;
         std::unordered_map<std::string, std::vector<std::string>> joint_claims;
 
     public:
         std::string __logger_name;
         ECClaimsResolver() : __logger_name("ECClaimsResolver"){};
         void init(
-            const std::unordered_map<std::string, std::shared_ptr<soem_slave_interface::SOEMSlave>> &slaves,
+            const std::unordered_map<std::string, std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave>> &slaves,
             const std::unordered_map<std::string, std::vector<std::string>> &joint_claims)
 
         {

@@ -1,53 +1,32 @@
 
-#ifndef SOEM_SLAVE_INTERFACE__SOEM_SLAVE_HPP_
-#define SOEM_SLAVE_INTERFACE__SOEM_SLAVE_HPP_
+#ifndef SOEM_DRIVER_SLAVE_INTERFACE__SOEM_SLAVE_HPP_
+#define SOEM_DRIVER_SLAVE_INTERFACE__SOEM_SLAVE_HPP_
 
 #include <string>
 #include <vector>
 #include <map>
 #include <functional>
 #include <algorithm>
-#include <span>
-#include <cstddef>
 
 #include "hardware_interface/system_interface.hpp"
 
-// namespace soem_slave_interface
-// {
-//     class SOEMSlave;
-// }
-// #include "soem_driver/soem_driver.hpp"
+#include "soem_driver_common/soem_driver_common.hpp"
 
 namespace soem_driver
 {
-    class SOEMDriver;
-    typedef std::span<std::byte> buffer;
+    class SOEMDriver;    
 } // namespace soem_driver
 
-// class soem_driver::SOEMDriver;
-// typedef std::span<std::byte> soem_driver::buffer;
 
-namespace soem_slave_interface
+namespace soem_driver_slave_interface
 {
-    template <typename I>
-    std::vector<I> list_initialize_non_copyable_interface(const std::initializer_list<std::tuple<std::string, std::string, double *>>& params)
-    {
-        std::vector<I> target;
-        std::transform(params.begin(), params.end(), std::back_inserter(target),
-                       [](auto pack)
-                       {
-                           return std::make_from_tuple<I>(pack);
-                       });
-        return target;
-    };
-
-    class SOEMSlave
+    class SOEMDriverSlave
     {
         // allow private member access from driver to setup buffers
         friend class soem_driver::SOEMDriver;
 
     public:
-        SOEMSlave() : RxPDO(_RxPDO),
+        SOEMDriverSlave() : RxPDO(_RxPDO),
                       TxPDO(_TxPDO),
                       mbx_send_pending(_mbx_send_pending){};
 
@@ -108,12 +87,11 @@ namespace soem_slave_interface
             uint64_t revision_number,
             std::unordered_map<std::string, std::string> parameters) = 0;
 
-        typedef std::function<void(uint16_t index, uint8_t sub_index, soem_driver::buffer data)> SDOwrite_t;
-        virtual void setup_SDO_hook(SDOwrite_t SDOwrite){};
+        virtual void setup_SDO_hook(soem_driver::SDOwrite_t SDOwrite){};
 
         virtual hardware_interface::return_type read(const rclcpp::Time &, const rclcpp::Duration &) = 0;
         virtual hardware_interface::return_type write(const rclcpp::Time &, const rclcpp::Duration &) = 0;
     };
-} // namespace soem_slave_interface
+} // namespace soem_driver_slave_interface
 
-#endif // SOEM_SLAVE_INTERFACE__SOEM_SLAVE_HPP_
+#endif // SOEM_DRIVER_SLAVE_INTERFACE__SOEM_SLAVE_HPP_

@@ -14,7 +14,8 @@ find_package(pluginlib REQUIRED)
 find_package(yaml_cpp_vendor REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
-find_package(soem_slave_interface REQUIRED)
+find_package(soem_driver_common REQUIRED)
+find_package(soem_driver_slave_interface REQUIRED)
 
 # expects soem headers to be found as "soem/*.h"
 find_package(soem QUIET)
@@ -22,10 +23,31 @@ if(NOT SOEM_FOUND)
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/soem)
 endif()
 
+
+
+# master
+add_library(soem_master src/soem_master.cpp)
+set_property(TARGET soem_master PROPERTY CXX_STANDARD 20)
+
+target_include_directories(soem_master PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+target_link_libraries(soem_master soem)
+ament_target_dependencies(
+  soem_master
+  rclcpp
+  soem_driver_common
+)
+
+
+# driver
 add_library(
   ${PROJECT_NAME}
   SHARED
   src/soem_driver.cpp
+  # src/soem_master.cpp
 )
 
 set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 20)
@@ -36,7 +58,8 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 )
 
 target_link_libraries(${PROJECT_NAME}
-  soem
+  # soem
+  soem_master
 )
 
 ament_target_dependencies(
@@ -46,7 +69,8 @@ ament_target_dependencies(
   yaml_cpp_vendor
   rclcpp
   rclcpp_lifecycle
-  soem_slave_interface
+  soem_driver_common
+  soem_driver_slave_interface
 )
 
 # # Causes the visibility macros to use dllexport rather than dllimport,
@@ -90,6 +114,15 @@ if(BUILD_TESTING)
     ros2_control_test_assets
   )
 
+  add_executable(test_soem_master test/test_soem_master.cpp)
+  set_property(TARGET test_soem_master PROPERTY CXX_STANDARD 20)
+  # target_link_libraries(test_soem_master soem_driver)
+  target_link_libraries(test_soem_master soem_master)
+  ament_target_dependencies(
+    test_soem_master
+    rclcpp
+    # soem_driver
+  )
 endif()
 
 ## EXPORTS
@@ -105,7 +138,8 @@ ament_export_dependencies(
   pluginlib
   rclcpp
   rclcpp_lifecycle
-  soem_slave_interface
+  soem_driver_common
+  soem_driver_slave_interface
 )
 
 ament_package()
