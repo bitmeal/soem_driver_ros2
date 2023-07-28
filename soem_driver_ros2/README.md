@@ -4,5 +4,5 @@ a naive aproach to composable robots, from EtherCAT slaves, for use with ROS2 co
 
 
 ## building
-the metapackage has to be built, as it automates build steps for the whole repository:
+the metapackage has to be built and added as build dependency to the other packages, as it automates build steps for the whole repository:
 * checkout submodules

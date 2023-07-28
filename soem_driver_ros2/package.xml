@@ -9,7 +9,7 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <exec_depend>soem_driver</exec_depend>
+  <!-- <exec_depend>soem_driver</exec_depend> -->
   <exec_depend>soem_driver_slave_interface</exec_depend>
   <!--
     use soem_slave_modules as package name/namespace

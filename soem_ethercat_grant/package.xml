@@ -12,6 +12,9 @@
   <depend>libprocps-dev</depend>
   <depend>libcap-ng-dev</depend>
 
+  <!-- setup and automation -->
+  <build_depend>soem_driver_ros2</build_depend>
+
   <!--
     <test_depend>ament_lint_auto</test_depend>
     <test_depend>ament_lint_common</test_depend>
