@@ -16,9 +16,6 @@
   <depend>soem_driver_common</depend>
   <depend>soem_driver_slave_interface</depend>
   
-  <!-- setup and automation -->
-  <build_depend>soem_driver_ros2</build_depend>
-
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 

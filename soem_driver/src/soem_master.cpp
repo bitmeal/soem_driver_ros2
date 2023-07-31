@@ -22,21 +22,32 @@ namespace soem_master
 
     SOEMMaster::SOEMMaster()
         : slaves(_slaves), __logger_name("soem_master"){};
-    SOEMMaster::~SOEMMaster(){
-              ec_close();
-            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "closed EtherCAT communication");
+    SOEMMaster::~SOEMMaster()
+    {
+        ec_close();
+        RCLCPP_INFO(rclcpp::get_logger(__logger_name), "closed EtherCAT communication");
     };
 
     // initialize interface and scan bus for slaves
     void SOEMMaster::init(const std::string &interface)
     {
+        // init and open interface
         if (ec_init(interface.c_str()))
         {
             RCLCPP_INFO(rclcpp::get_logger(__logger_name), "initialized EtherCAT communication on interface %s", interface.c_str());
 
-            for (auto slave_idx : std::ranges::views::iota(0, ec_slavecount))
+            // find and auto_configure slaves to PRE_OP
+            if ( ec_config_init(FALSE) > 0 )
             {
-                RCLCPP_INFO(rclcpp::get_logger(__logger_name), "slave %i: %s", slave_idx, ec_slave[slave_idx].name);
+                // 0 is broadcast address; slaves are indexed by bus address, not array indexing
+                for (auto slave_idx : std::ranges::views::iota(1, ec_slavecount + 1))
+                {
+                    RCLCPP_INFO(rclcpp::get_logger(__logger_name), "slave %i: %s", slave_idx, ec_slave[slave_idx].name);
+                }
+            }
+            else
+            {
+                throw std::runtime_error("could not discover EtherCAT bus on interface " + interface);
             }
         }
         else
