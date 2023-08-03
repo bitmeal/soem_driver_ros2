@@ -16,6 +16,8 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(soem_driver_common REQUIRED)
 find_package(soem_driver_slave_interface REQUIRED)
+find_package(Threads REQUIRED)
+find_package(Boost REQUIRED)
 
 # expects soem headers to be found as "soem/*.h"
 find_package(soem QUIET)
@@ -28,13 +30,20 @@ endif()
 # master
 add_library(soem_master src/soem_master.cpp)
 set_property(TARGET soem_master PROPERTY CXX_STANDARD 20)
+# use SOEM without global/static context
+target_compile_definitions(soem_master PUBLIC EC_VER2)
 
 target_include_directories(soem_master PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(soem_master soem)
+target_link_libraries(soem_master
+  soem
+  Threads::Threads
+  Boost::boost
+)
+
 ament_target_dependencies(
   soem_master
   rclcpp

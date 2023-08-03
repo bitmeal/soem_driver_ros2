@@ -4,8 +4,15 @@
 #include <memory>
 #include <vector>
 #include <map>
+#include <thread>
+#include <chrono>
+#include <boost/lockfree/spsc_queue.hpp>
 
 #include "soem_driver_common/soem_driver_common.hpp"
+extern "C"
+{
+#include "soem/ethercat.h"
+}
 
 namespace soem_master
 {
@@ -20,9 +27,14 @@ namespace soem_master
 
         std::string name;
 
+        // PDO sizes as minimum number of bytes to hold data; slave with one one-bit-I/O has one byte
+        // output data size
         size_t RxPDO_size;
+        // input data size
         size_t TxPDO_size;
     };
+
+    const std::string ec_state_to_string(/* ec_state */ uint16_t  state);
 
     class SOEMMaster
     {
@@ -36,28 +48,113 @@ namespace soem_master
         // initialize interface and scan bus for slaves
         void init(const std::string &interface);
         // get all devices to OP state, calling attached SDO setup hooks on transition from PO to SO
-        void start_bus();
+        void start_bus(size_t IOmap_size = 4096);
 
         // run cyclic master realtime task with cycle time
-        void run(int cycle_time);
+        void run(std::chrono::microseconds cycle_time_us);
+
+        // transfer RxPDO working set to realtime context and send to bus
+        void transfer_RxPDO();
+        // transfer latest data from bus to TxPDO working set
+        void transfer_TxPDO();
+
         void stop();
 
+        int get_cycle_counter();
+        
         void slave_attach_SDO_setup_hook(const SOEMEcSlaveInfo &slave, std::function<void(soem_driver::SDOwrite_t)> hook_fn);
-        soem_driver::buffer getRxPDO(SOEMEcSlaveInfo);
-        const soem_driver::buffer getTxPDO(SOEMEcSlaveInfo);
+
+        // get buffer to working set of slaves RxPDO & RxPDO
+        // call after calling start_bus() only!
+        soem_driver::buffer getRxPDO(SOEMEcSlaveInfo slave);
+        const soem_driver::buffer getTxPDO(SOEMEcSlaveInfo slave);
 
     private:
+        std::map<uint16_t, std::function<void(soem_driver::SDOwrite_t)>> SDO_setup_hook_store;
+
         std::vector<std::byte> IOmap;
 
         // RxPDO / Output
-        soem_driver::buffer RxPDO;
+        soem_driver::buffer RxPDO_IOmap;
+        std::vector<std::byte> RxPDO_working;
+        boost::lockfree::spsc_queue<std::vector<std::byte>> RxPDO_transfer_queue;
+
         // TxPDO / Input
-        soem_driver::buffer TxPDO;
+        soem_driver::buffer TxPDO_IOmap;
+        std::vector<std::byte> TxPDO_working;
+        boost::lockfree::spsc_queue<std::vector<std::byte>> TxPDO_transfer_queue;
+
 
         std::vector<SOEMEcSlaveInfo> _slaves;
 
-        // soem_driver::SDOwrite_t
-        void SDOwrite(uint16_t index, uint8_t sub_index, soem_driver::buffer data);
+        void ec_log_slaves();
+
+        // TODO(bitmeal): static function does not allow multiple master instances and will lead to colissions!
+        int call_slave_SDO_setup_hook(uint16_t slave_position);
+
+        ////////////////////////////
+        // SOEM context
+        // from ethercatmain.c
+
+        ec_slavet ec_slave[EC_MAXSLAVE];
+        int ec_slavecount;
+        ec_groupt ec_group[EC_MAXGROUP];
+
+        uint8_t ec_esibuf[EC_MAXEEPBUF];
+        uint32_t ec_esimap[EC_MAXEEPBITMAP];
+        ec_eringt ec_elist;
+        ec_idxstackT ec_idxstack;
+
+        ec_SMcommtypet ec_SMcommtype[EC_MAX_MAPT];
+        ec_PDOassignt ec_PDOassign[EC_MAX_MAPT];
+        ec_PDOdesct ec_PDOdesc[EC_MAX_MAPT];
+
+        ec_eepromSMt ec_SM;
+        ec_eepromFMMUt ec_FMMU;
+        boolean EcatError = FALSE;
+
+        int64_t ec_DCtime;
+
+        ecx_portt ecx_port;
+        ecx_redportt ecx_redport;
+
+        ecx_contextt ecx_context;
+        // ecx_contextt ecx_context = {
+        //     &ecx_port,         // .port          =
+        //     &ec_slave[0],      // .slavelist     =
+        //     &ec_slavecount,    // .slavecount    =
+        //     EC_MAXSLAVE,       // .maxslave      =
+        //     &ec_group[0],      // .grouplist     =
+        //     EC_MAXGROUP,       // .maxgroup      =
+        //     &ec_esibuf[0],     // .esibuf        =
+        //     &ec_esimap[0],     // .esimap        =
+        //     0,                 // .esislave      =
+        //     &ec_elist,         // .elist         =
+        //     &ec_idxstack,      // .idxstack      =
+        //     &EcatError,        // .ecaterror     =
+        //     0,                 // .DCtO          =
+        //     0,                 // .DCl           =
+        //     &ec_DCtime,        // .DCtime        =
+        //     &ec_SMcommtype[0], // .SMcommtype    =
+        //     &ec_PDOassign[0],  // .PDOassign     =
+        //     &ec_PDOdesc[0],    // .PDOdesc       =
+        //     &ec_SM,            // .eepSM         =
+        //     &ec_FMMU,          // .eepFMMU       =
+        //     NULL,              // .FOEhook()
+        //     NULL,              // .EOEhook()
+        //     0                  // .manualstatechange
+        // };
+        ////////////////////////////
+        
+        bool stopped;
+        int cycle_counter;
+        std::thread cyclic_master;
+        void set_thread_RT();
+
+        void bus_up_OP();
+        void bus_down_SAFE_OP();
+
+        void cyclic_task(std::chrono::microseconds cycle_time_us);
     };
 } // namespace soem_master
 

@@ -31,6 +31,7 @@ namespace soem_driver_slave_interface
                       mbx_send_pending(_mbx_send_pending){};
 
     private:
+        // will be assigned by driver, access using RxPDO and TxPDO references
         soem_driver::buffer _RxPDO;
         soem_driver::buffer _TxPDO;
 
@@ -56,7 +57,10 @@ namespace soem_driver_slave_interface
 
     protected:
         // PDO buffers will be assigned by drivers; buffer itself is const, data in buffer is non-const
+        // access buffers in read() and write() only!
+        // output
         const soem_driver::buffer &RxPDO;
+        // input
         const soem_driver::buffer &TxPDO;
 
         const bool &mbx_send_pending;

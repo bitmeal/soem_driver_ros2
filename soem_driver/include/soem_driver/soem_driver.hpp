@@ -42,11 +42,11 @@ namespace soem_driver
         // methods ordered by expected order of execution during operation
 
         CallbackReturn on_init(const hardware_interface::HardwareInfo &info) override;
-        CallbackReturn on_configure(const rclcpp_lifecycle::State &previous_state) override;
 
         std::vector<hardware_interface::StateInterface> export_state_interfaces() override;
         std::vector<hardware_interface::CommandInterface> export_command_interfaces() override;
 
+        CallbackReturn on_configure(const rclcpp_lifecycle::State &previous_state) override;
         CallbackReturn on_activate(const rclcpp_lifecycle::State &previous_state) override;
 
         hardware_interface::return_type read(const rclcpp::Time &, const rclcpp::Duration &) override;
@@ -71,6 +71,7 @@ namespace soem_driver
         // map from: <joint> --> [<claim>]
         std::unordered_map<std::string, std::vector<std::string>> joint_claims;
         std::string ec_interface;
+
 
         std::string _get_text_for_element(
             const tinyxml2::XMLElement *element_it, const std::string &tag_name);

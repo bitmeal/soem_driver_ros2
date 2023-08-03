@@ -181,11 +181,39 @@ Sequence of method calls throughout lifecycle, aligned to the lifecycle of the S
 * `configure( vendor_id, product_code, revision_number, parameters )`: configure driver for operation
 * `setup_SDO_hook( SDOwrite )`: will be called from SOEM when setting up the device; allows PDO configuration by writing SDOs. do not use when your device does not require special PDO setup
 
+No bus access and communication is possible when configuring (`configure()` call). Performing advanced initialization procedures has to be handled by implementing the necessary logic and state machines in the cyclic calls to `read()` and `write()`.
 
 When initialized and while operating, the `read()` and `write()` methods will be called continuously. Use them to map and transform the data between `RxPDO` & `TxPDO` members and the exported state and command interfaces. When necessary, you may send mailbox messages to your slave by calling `schedule_Mbx_send(msg, callback)`, if callback is given, we expect the slave to respond with a mailbox message itself and call the callback function upon reception.
 
+## internals
+### call sequence
+* driver: `on_init()`
+  * load slave modules
+  * slave modules: `init()`
+* driver: `on_configure()`
+  * master: `init()`
+  * slave modules: `configure()`
+  * master: `start_bus()` (SAFE OP)
+* driver: `on_activate()`
+  * master: `run()`
+* <loop>
+* driver: `on_deactivate()`
+  * master: `stop()`
+
+### buffer type
+simple `std::span<std::byte>`, deeper dive in [3]
+
+## TODO
+* what to do with bit oriented slaves?
 
 ## References
+* [0] https://github.com/OpenEtherCATsociety/SOEM
 * [1] https://raw.githubusercontent.com/ros-controls/control.ros.org/master/doc/resources/presentations/2022-06_ROSConFr_What-is-new-in-ros2_control.pdf
 * [2] https://github.com/ros-controls/ros2_control/issues/551#issuecomment-947174795
-
+* [3] https://vector-of-bool.github.io/2020/08/29/buffers-1.html
+* [4] https://bootlin.com/doc/training/preempt-rt/preempt-rt-slides.pdf
+* [5] https://github.com/ICube-Robotics/ethercat_driver_ros2
+* [6] https://github.com/orocos/rtt_soem
+* [7] https://github.com/leggedrobotics/soem_interface
+* [8] https://roscon.ros.org/2015/presentations/RealtimeROS2.pdf
+* [9] https://github.com/OpenEtherCATsociety/SOEM/issues/696#issuecomment-1514232519

@@ -13,6 +13,7 @@
   <depend>pluginlib</depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_lifecycle</depend>
+  <depend>boost</depend>
   <depend>soem_driver_common</depend>
   <depend>soem_driver_slave_interface</depend>
   

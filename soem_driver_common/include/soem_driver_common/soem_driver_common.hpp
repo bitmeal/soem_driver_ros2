@@ -12,7 +12,7 @@ namespace soem_driver
 {
     typedef std::span<std::byte> buffer;
 
-    typedef std::function<void(uint16_t index, uint8_t sub_index, soem_driver::buffer data)> SDOwrite_t;
+    typedef std::function<void(uint16_t index, uint8_t sub_index, soem_driver::buffer data, bool complete_access)> SDOwrite_t;
 
     template <typename I>
     std::vector<I> list_initialize_non_copyable_interface(const std::initializer_list<std::tuple<std::string, std::string, double *>> &params)
