@@ -54,15 +54,17 @@ int main(int argc, char const *argv[])
 
     master.run(std::chrono::microseconds(1000));
 
-    auto TxPDO = master.getTxPDO(master.slaves[1]);
-    while(true)
+    // auto TxPDO = master.getTxPDO(master.slaves[1]);
+    auto& SlavePD = master.slaves_data_access[1];
+    int cycles = 5;
+    while(cycles--)
     {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         RCLCPP_INFO(rclcpp::get_logger(__logger_name), "cycle count: %d", master.get_cycle_counter());
 
         master.transfer_TxPDO();
         // printf("cycle count: %d\n", master.get_cycle_counter());
-        hexdump(TxPDO.data(), TxPDO.size());
+        hexdump(SlavePD.TxPDO.data(), SlavePD.TxPDO.size());
     }
 
     master.stop();

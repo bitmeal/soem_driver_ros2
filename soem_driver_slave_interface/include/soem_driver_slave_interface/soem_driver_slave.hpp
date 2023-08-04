@@ -37,7 +37,7 @@ namespace soem_driver_slave_interface
 
         bool _mbx_send_pending = false;
         std::function<void(const soem_driver::buffer)> _mbx_callback;
-        soem_driver::buffer _TxMbx;
+        soem_driver::buffer _TxMbx; // send
 
         void _dispatch_Mbx_callback(soem_driver::buffer msg)
         {

@@ -3,10 +3,12 @@
 
 #include <memory>
 #include <vector>
+#include <deque>
 #include <map>
 #include <thread>
 #include <chrono>
-#include <boost/lockfree/spsc_queue.hpp>
+#include <atomic>
+// #include <boost/lockfree/spsc_queue.hpp>
 
 #include "soem_driver_common/soem_driver_common.hpp"
 extern "C"
@@ -16,6 +18,8 @@ extern "C"
 
 namespace soem_master
 {
+    inline constexpr size_t cacheline_width = 64;
+
     struct SOEMEcSlaveInfo
     {
         uint64_t vendor_id;
@@ -34,7 +38,44 @@ namespace soem_master
         size_t TxPDO_size;
     };
 
-    const std::string ec_state_to_string(/* ec_state */ uint16_t  state);
+    struct SOEMEcSlaveDataAccess
+    {
+        SOEMEcSlaveDataAccess(
+            SOEMEcSlaveInfo &slave_info,
+            soem_driver::buffer RxPDO,
+            const soem_driver::buffer TxPDO,
+            soem_driver::buffer SMbx,
+            const soem_driver::buffer RMbx
+            ) : slave_info(slave_info),
+                RxPDO(RxPDO),
+                TxPDO(TxPDO),
+                SMbx(SMbx),
+                RMbx(RMbx),
+                send_mbx_request(false),
+                receive_mbx(false),
+                receive_mbx_has_unread(false){};
+
+        SOEMEcSlaveInfo &slave_info;
+
+        // output data
+        soem_driver::buffer RxPDO;
+        // input data
+        const soem_driver::buffer TxPDO;
+        // send mailbox
+        soem_driver::buffer SMbx;
+        // receive mailbox
+        const soem_driver::buffer RMbx;
+
+        // requests send of mailbox buffer SMbx, resets after send
+        alignas(cacheline_width) std::atomic_bool send_mbx_request;
+
+        // mailbox will be queried continuously if true, and no unread data in buffer
+        alignas(cacheline_width) std::atomic_bool receive_mbx;
+        // indicates unread mailbox message in buffer, reset after read to get new messages
+        alignas(cacheline_width) std::atomic_bool receive_mbx_has_unread;
+    };
+
+    const std::string ec_state_to_string(/* ec_state */ uint16_t state);
 
     class SOEMMaster
     {
@@ -43,7 +84,8 @@ namespace soem_master
         ~SOEMMaster();
 
         std::string __logger_name;
-        const std::vector<SOEMEcSlaveInfo> &slaves;
+        const std::deque<SOEMEcSlaveInfo> &slaves;
+        const std::deque<SOEMEcSlaveDataAccess> &slaves_data_access;
 
         // initialize interface and scan bus for slaves
         void init(const std::string &interface);
@@ -61,13 +103,15 @@ namespace soem_master
         void stop();
 
         int get_cycle_counter();
-        
+
         void slave_attach_SDO_setup_hook(const SOEMEcSlaveInfo &slave, std::function<void(soem_driver::SDOwrite_t)> hook_fn);
 
         // get buffer to working set of slaves RxPDO & RxPDO
         // call after calling start_bus() only!
         soem_driver::buffer getRxPDO(SOEMEcSlaveInfo slave);
         const soem_driver::buffer getTxPDO(SOEMEcSlaveInfo slave);
+        soem_driver::buffer getSMbx(SOEMEcSlaveInfo slave);
+        const soem_driver::buffer getRMbx(SOEMEcSlaveInfo slave);
 
     private:
         std::map<uint16_t, std::function<void(soem_driver::SDOwrite_t)>> SDO_setup_hook_store;
@@ -77,15 +121,21 @@ namespace soem_master
         // RxPDO / Output
         soem_driver::buffer RxPDO_IOmap;
         std::vector<std::byte> RxPDO_working;
-        boost::lockfree::spsc_queue<std::vector<std::byte>> RxPDO_transfer_queue;
+        alignas(cacheline_width) std::atomic_bool RxPDO_transfer;
+        // boost::lockfree::spsc_queue<std::vector<std::byte>> RxPDO_transfer_queue;
 
         // TxPDO / Input
         soem_driver::buffer TxPDO_IOmap;
         std::vector<std::byte> TxPDO_working;
-        boost::lockfree::spsc_queue<std::vector<std::byte>> TxPDO_transfer_queue;
+        alignas(cacheline_width) std::atomic_bool TxPDO_transfer;
+        // boost::lockfree::spsc_queue<std::vector<std::byte>> TxPDO_transfer_queue;
 
+        // mailbox buffers
+        std::vector<std::vector<std::byte>> SMbx;
+        std::vector<std::vector<std::byte>> RMbx;
 
-        std::vector<SOEMEcSlaveInfo> _slaves;
+        std::deque<SOEMEcSlaveInfo> _slaves;
+        std::deque<SOEMEcSlaveDataAccess> _slaves_data_access;
 
         void ec_log_slaves();
 
@@ -95,6 +145,7 @@ namespace soem_master
         ////////////////////////////
         // SOEM context
         // from ethercatmain.c
+        // TODO(bitmeal): wrap in context owning structure
 
         ec_slavet ec_slave[EC_MAXSLAVE];
         int ec_slavecount;
@@ -145,10 +196,14 @@ namespace soem_master
         //     0                  // .manualstatechange
         // };
         ////////////////////////////
-        
-        bool stopped;
-        int cycle_counter;
-        std::thread cyclic_master;
+
+        alignas(cacheline_width) std::atomic_int cycle_counter;
+        alignas(cacheline_width) std::thread cyclic_master;
+        alignas(cacheline_width) std::atomic_bool cyclic_master_terminate;
+        alignas(cacheline_width) std::atomic_bool cyclic_master_running;
+
+        // boost::lockfree::spsc_queue<std::string> cyclic_master_logger_queue;
+
         void set_thread_RT();
 
         void bus_up_OP();

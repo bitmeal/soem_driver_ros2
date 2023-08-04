@@ -61,9 +61,13 @@ namespace soem_master
     // };
 
     SOEMMaster::SOEMMaster()
-        : __logger_name("soem_master"), stopped(true), slaves(_slaves),
+        : __logger_name("soem_master"), slaves(_slaves),
           RxPDO_working({}), TxPDO_working({}),
-          RxPDO_transfer_queue(1), TxPDO_transfer_queue(1),
+          RxPDO_transfer(false), TxPDO_transfer(false),
+          SMbx({}), RMbx({}),
+          slaves_data_access(_slaves_data_access),
+          //   RxPDO_transfer_queue(1), TxPDO_transfer_queue(1),
+          cyclic_master_terminate(false), cyclic_master_running(false),
           IOmap({}),
           ecx_context({
               &ecx_port,         // .port          =
@@ -163,7 +167,7 @@ namespace soem_master
         //                                         return acc + slave.RxPDO_size + slave.TxPDO_size;
         //                                     });
 
-        IOmap.resize(IOmap_size);
+        IOmap.resize(IOmap_size, std::byte(0x00));
         ecx_config_overlap_map_group(&ecx_context, IOmap.data(), 0);
 
         // setup RxPDO/TxPDO non-owning buffer types and working buffers, copy IOmap content to buffers
@@ -174,6 +178,17 @@ namespace soem_master
         TxPDO_IOmap = {(std::byte *)(void *)(ec_group[0].inputs), ec_group[0].Ibytes};
         TxPDO_working.resize(TxPDO_IOmap.size());
         std::copy(TxPDO_IOmap.begin(), TxPDO_IOmap.end(), TxPDO_working.begin());
+
+        // setup mailbox buffers and slave data access structures
+        SMbx.resize(slaves.size(), {});
+        RMbx.resize(slaves.size(), {});
+        // _slaves_data_access.reserve(slaves.size());
+        for (auto &&slave : _slaves)
+        {
+            SMbx[slave.position - 1].resize(ec_slave[slave.position].mbx_l, std::byte(0x00));
+            RMbx[slave.position - 1].resize(ec_slave[slave.position].mbx_rl, std::byte(0x00));
+            _slaves_data_access.emplace_back(slave, getRxPDO(slave), getTxPDO(slave), getSMbx(slave), getRMbx(slave));
+        }
 
         /* wait for all slaves to reach SAFE_OP state */
         ecx_statecheck(&ecx_context, 0, EC_STATE_SAFE_OP, EC_TIMEOUTSTATE);
@@ -213,6 +228,7 @@ namespace soem_master
             ecx_statecheck(&ecx_context, 0, EC_STATE_OPERATIONAL, 50000);
             // ecx_statecheck(&ecx_context, 0, EC_STATE_OPERATIONAL, 5 * EC_TIMEOUTSTATE);
         } while (max_OP_PD-- && (ec_slave[0].state != EC_STATE_OPERATIONAL));
+        ecx_readstate(&ecx_context);
 
         if (ec_slave[0].state != EC_STATE_OPERATIONAL)
         {
@@ -233,21 +249,48 @@ namespace soem_master
     {
         set_thread_RT();
 
+        cyclic_master_running.store(true);
         auto time_next_loop = std::chrono::high_resolution_clock::now();
-        while (!stopped)
+
+        while (!cyclic_master_terminate.load())
         {
             cycle_counter++; // int should be atomic
 
-            // read new output data from queue, if present
-            RxPDO_transfer_queue.consume_all([&](std::vector<std::byte> RxPDO)
-                                             { std::copy(RxPDO.begin(), RxPDO.end(), RxPDO_IOmap.begin()); });
+            // get new output process data on request
+            if (RxPDO_transfer.load())
+            {
+                std::copy(RxPDO_working.begin(), RxPDO_working.end(), RxPDO_IOmap.begin());
+                RxPDO_transfer.store(false);
+                RxPDO_transfer.notify_one();
+            }
 
             // read/write process data
-            ecx_send_overlap_processdata_group(&ecx_context, 0);
-            ecx_receive_processdata(&ecx_context, EC_TIMEOUTRET);
+            if (!ecx_send_overlap_processdata_group(&ecx_context, 0))
+            {
+                // TODO(bitmeal): issue warning
+            }
 
-            // push gathered input data to queue
-            TxPDO_transfer_queue.push({TxPDO_IOmap.begin(), TxPDO_IOmap.end()});
+            if (!ecx_receive_processdata(&ecx_context, EC_TIMEOUTRET))
+            {
+                // TODO(bitmeal): issue warning
+                // TODO(bitmeal): track error count and exit if too many
+            }
+
+            // make input data available on request
+            if (TxPDO_transfer.load())
+            {
+                std::copy(TxPDO_IOmap.begin(), TxPDO_IOmap.end(), TxPDO_working.begin());
+                TxPDO_transfer.store(false);
+                TxPDO_transfer.notify_one();
+            }
+
+            // TODO(bitmeal): send and receive mailboxes
+
+            if (ecx_iserror(&ecx_context))
+            {
+                // TODO(bitmeal): issue warning
+                // TODO(bitmeal): possibly track error count and exit if too many
+            }
 
             // sleep until next cycle
             time_next_loop += cycle_time_us;
@@ -259,6 +302,8 @@ namespace soem_master
             }
             std::this_thread::sleep_until(time_next_loop);
         }
+
+        cyclic_master_running.store(false);
     };
 
     // run cyclic master realtime task with cycle time
@@ -268,7 +313,7 @@ namespace soem_master
         ec_log_slaves();
 
         cycle_counter = 0;
-        stopped = false;
+        cyclic_master_terminate.store(false);
 
         cyclic_master = std::thread{&SOEMMaster::cyclic_task, this, cycle_time_us};
     };
@@ -276,19 +321,37 @@ namespace soem_master
     // transfer RxPDO working set to realtime context and send to bus
     void SOEMMaster::transfer_RxPDO()
     {
-        RxPDO_transfer_queue.push(RxPDO_working);
+        // RxPDO_transfer_queue.push(RxPDO_working);
+
+        if (cyclic_master_running.load() && !cyclic_master_terminate.load())
+        {
+            RxPDO_transfer.store(true);
+            RxPDO_transfer.wait(true);
+        }
     };
     // transfer latest data from bus to TxPDO working set
     void SOEMMaster::transfer_TxPDO()
     {
-        TxPDO_transfer_queue.consume_all([&](std::vector<std::byte> TxPDO)
-                                         { std::copy(TxPDO.begin(), TxPDO.end(), TxPDO_working.begin()); });
+        // TxPDO_transfer_queue.consume_all([&](std::vector<std::byte> TxPDO)
+        //                                  { std::copy(TxPDO.begin(), TxPDO.end(), TxPDO_working.begin()); });
+
+        if (cyclic_master_running.load() && !cyclic_master_terminate.load())
+        {
+            TxPDO_transfer.store(true);
+            TxPDO_transfer.wait(true);
+        }
     };
 
     void SOEMMaster::stop()
     {
-        stopped = true;
-        cyclic_master.join();
+        if (cyclic_master.joinable())
+        {
+            cyclic_master_terminate.store(true);
+            cyclic_master.join();
+        }
+
+        cyclic_master_running.store(false);
+        cyclic_master_terminate.store(false);
     };
 
     void SOEMMaster::slave_attach_SDO_setup_hook(const SOEMEcSlaveInfo &slave, std::function<void(soem_driver::SDOwrite_t)> hook_fn)
@@ -311,6 +374,17 @@ namespace soem_master
     {
         size_t slave_inputs_offset = ec_slave[slave.position].inputs - ec_group[0].inputs;
         return {TxPDO_working.data() + slave_inputs_offset, ec_slave[slave.position].Ibytes};
+    };
+
+    soem_driver::buffer SOEMMaster::getSMbx(SOEMEcSlaveInfo slave)
+    {
+        auto holding_buffer = SMbx[slave.position - 1];
+        return {holding_buffer.data(), holding_buffer.size()};
+    };
+    const soem_driver::buffer SOEMMaster::getRMbx(SOEMEcSlaveInfo slave)
+    {
+        auto holding_buffer = RMbx[slave.position - 1];
+        return {holding_buffer.data(), holding_buffer.size()};
     };
 
     // setup function passed to SOEM
@@ -367,7 +441,8 @@ namespace soem_master
             return;
         }
 
-        int MAX_SAFE_STACK = 8 * 1024;
+        // TODO(bitmeal): optimized out? optimization?
+        constexpr int MAX_SAFE_STACK = 8 * 1024;
         unsigned char dummy[MAX_SAFE_STACK];
         memset(dummy, 0, MAX_SAFE_STACK);
     };

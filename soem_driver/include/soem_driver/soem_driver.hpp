@@ -12,6 +12,7 @@
 
 
 #include "soem_driver_common/soem_driver_common.hpp"
+
 #include "soem_driver_slave_interface/soem_driver_slave.hpp"
 
 #include "soem_driver/claims_resolver.hpp"
