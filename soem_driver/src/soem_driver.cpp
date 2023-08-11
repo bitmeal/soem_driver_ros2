@@ -237,6 +237,46 @@ namespace soem_driver
         }
         ec_interface = _get_text_for_element(ec_interface_it, "ec_interface");
 
+        // get realtime loop cycle time configuration
+        const auto *ec_cycle_us_it = hardware_it->FirstChildElement("ec_cycle_us");
+        if (!ec_cycle_us_it)
+        {
+            throw std::runtime_error("no ec_cycle_us tag in hardware");
+        }
+        ec_cycle_us = std::chrono::microseconds{
+            std::stoi(_get_text_for_element(ec_cycle_us_it, "ec_cycle_us"))};
+
+        // get EtherCAT timeout configuration
+        const auto *ec_timeout_pd_it = hardware_it->FirstChildElement("ec_timeout_pd_us");
+        if (ec_timeout_pd_it)
+        {
+            int ec_timeout_pd = std::stoi(_get_text_for_element(ec_timeout_pd_it, "ec_timeout_pd_us"));
+            RCLCPP_INFO(rclcpp::get_logger(__logger_name),
+                        "configuring EtherCAT timeout for process data receive: %dµs", ec_timeout_pd);
+
+            master.timeout_process_data = std::chrono::microseconds{ec_timeout_pd};
+        }
+
+        const auto *ec_timeout_mbx_recv_it = hardware_it->FirstChildElement("ec_timeout_mbxrx_us");
+        if (ec_timeout_mbx_recv_it)
+        {
+            int ec_timeout_mbx_recv = std::stoi(_get_text_for_element(ec_timeout_mbx_recv_it, "ec_timeout_mbxrx_us"));
+            RCLCPP_INFO(rclcpp::get_logger(__logger_name),
+                        "configuring EtherCAT timeout for mailbox receive: %dµs", ec_timeout_mbx_recv);
+
+            master.timeout_mbx_receive = std::chrono::microseconds{ec_timeout_mbx_recv};
+        }
+
+        const auto *ec_timeout_mbx_send_it = hardware_it->FirstChildElement("ec_timeout_mbxtx_us");
+        if (ec_timeout_mbx_send_it)
+        {
+            int ec_timeout_mbx_send = std::stoi(_get_text_for_element(ec_timeout_mbx_send_it, "ec_timeout_mbxtx_us"));
+            RCLCPP_INFO(rclcpp::get_logger(__logger_name),
+                        "configuring EtherCAT timeout for mailbox send: %dµs", ec_timeout_mbx_send);
+
+            master.timeout_mbx_send = std::chrono::microseconds{ec_timeout_mbx_send};
+        }
+
         // get slave info/config
         // const auto slaves = _parse_slaves_from_hardware(hardware_it);
         slave_infos = _parse_slaves_from_hardware(hardware_it);
@@ -258,6 +298,7 @@ namespace soem_driver
 
         try
         {
+            // non mandatory configuration parameters will be reported while parsing
             parse_hardware_info(info);
         }
         catch (const std::exception &e)
@@ -268,6 +309,9 @@ namespace soem_driver
 
         // report ethercat interface
         RCLCPP_INFO(rclcpp::get_logger(__logger_name), "using interface %s", ec_interface.c_str());
+
+        // report realtime loop cycle time
+        RCLCPP_INFO(rclcpp::get_logger(__logger_name), "EtherCAT realtime loop will run at %ldµs cycle time", ec_cycle_us.count());
 
         // report slaves
         for (auto &&slave : slave_infos)
@@ -303,6 +347,7 @@ namespace soem_driver
             }
             catch (const std::exception &e)
             {
+                // we don't throw, but load remaining plugins. slaves may have uninitialized plugins in result
                 RCLCPP_ERROR(rclcpp::get_logger(__logger_name), "failed to load plugin %s for slave %s; threw: %s", slave.plugin_name.c_str(), slave.name.c_str(), e.what());
             }
         }
@@ -314,8 +359,96 @@ namespace soem_driver
         return CallbackReturn::SUCCESS;
     };
 
-    CallbackReturn SOEMDriver::on_configure(const rclcpp_lifecycle::State &previous_state)
+    CallbackReturn SOEMDriver::on_configure(const rclcpp_lifecycle::State & /* previous_state */)
     {
+        // initialize EtherCAT communications and discover slaves
+        master.init(ec_interface);
+
+        // configure slaves with info from bus and attach SDO setup hooks
+        for (auto &&slave_info : slave_infos)
+        {
+            auto slave_it = slaves.find(slave_info.name);
+            if (slave_it == slaves.end())
+            {
+                RCLCPP_WARN(rclcpp::get_logger(__logger_name), "failed to lookup and configure plugin instance for slave %s", slave_info.name.c_str());
+                continue;
+            }
+
+            auto &slave = *(slave_it->second);
+
+            // find ethercat slaves from master by position or alias
+            auto ec_slave_it = std::find_if(
+                master.slaves.begin(), master.slaves.end(),
+                [&](const soem_master::SOEMEcSlaveInfo &ec_slave)
+                {
+                    if (!slave_info.alias)
+                    {
+                        return ec_slave.position == slave_info.position;
+                    }
+                    else
+                    {
+                        return ec_slave.alias == slave_info.alias;
+                    }
+                });
+            if (ec_slave_it == master.slaves.end())
+            {
+                RCLCPP_WARN(rclcpp::get_logger(__logger_name), "failed to find a slave on the bus for %s @%d:%d", slave_info.name.c_str(), slave_info.position, slave_info.alias);
+                continue;
+            }
+
+            slave._position_ec_bus = ec_slave_it->position;
+            // configure slave with position, alias, vendor id, product id, revision
+            if (!slave.configure(
+                    ec_slave_it->vendor_id,
+                    ec_slave_it->product_code,
+                    ec_slave_it->revision_number,
+                    slave_info.parameters))
+            {
+                RCLCPP_WARN(rclcpp::get_logger(__logger_name), "slave %s reported failure when attempting configuration", slave_info.name.c_str());
+                continue;
+            }
+
+            // attach SDO setup hook
+            master.slave_attach_SDO_setup_hook(
+                *ec_slave_it,
+                // std::bind does not return a std::function
+                // std::bind(&soem_driver_slave_interface::SOEMDriverSlave::setup_SDO_hook, &slave)
+                [&](auto... Args)
+                {
+                    slave.setup_SDO_hook(Args...);
+                });
+
+            initialized_slaves.push_back(slave_it->second);
+
+            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "successfully configured slave %s", slave_info.name.c_str());
+        }
+
+        // start EtherCAT bus and setup data access structures
+        master.start_bus();
+
+        // assign data access structures to slaves
+        for (auto slave_ptr : initialized_slaves)
+        {
+            auto ec_slave_da_it = std::find_if(
+                master.slaves_data_access.begin(), master.slaves_data_access.end(),
+                [&](const soem_master::SOEMEcSlaveDataAccess &ec_slave_da)
+                {
+                    return ec_slave_da.slave_info.position == slave_ptr->_position_ec_bus;
+                });
+            if (ec_slave_da_it == master.slaves_data_access.end())
+            {
+                // this should never happen... and check may be removed
+                // RCLCPP_WARN(rclcpp::get_logger(__logger_name), "failed to find a slave on the bus for %s @%d:%d", slave_info.name.c_str(), slave_info.position, slave_info.alias);
+                continue;
+            }
+
+            // setup data access
+            slave_ptr->_RxPDO = ec_slave_da_it->RxPDO;
+            slave_ptr->_TxPDO = ec_slave_da_it->TxPDO;
+
+            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "successfully configured process data access for slave in position %d", slave_ptr->_position_ec_bus);
+        }
+
         return CallbackReturn::SUCCESS;
     };
 
@@ -329,26 +462,71 @@ namespace soem_driver
         return claims_resolver.export_command_interfaces();
     };
 
-    CallbackReturn SOEMDriver::on_activate(const rclcpp_lifecycle::State &previous_state)
+    CallbackReturn SOEMDriver::on_activate(const rclcpp_lifecycle::State & /* previous_state */)
     {
+        master.run(ec_cycle_us);
         return CallbackReturn::SUCCESS;
     };
 
-    hardware_interface::return_type SOEMDriver::read(const rclcpp::Time &, const rclcpp::Duration &)
+    hardware_interface::return_type SOEMDriver::read(const rclcpp::Time &time, const rclcpp::Duration &duration)
     {
+        // transfer process data to slaves buffers
+        master.transfer_TxPDO();
+
+        // make slaves read process data
+        for (auto slave_ptr : initialized_slaves)
+        {
+            auto& slave_da = master.slaves_data_access[slave_ptr->_position_ec_bus - 1];
+            //// fetch read mailbox
+            // transfer modules request to read mailbox to master
+            slave_da.receive_mbx.store(slave_ptr->fetch_mailbox);
+            // fetch mailbox content as long as master has pending messages
+            if(slave_da.receive_mbx_has_unread.load())
+            {
+                slave_ptr->mbx_receive_queue.push({
+                    slave_da.RMbx.begin(),
+                    slave_da.RMbx.end()
+                });
+                slave_da.receive_mbx_has_unread.store(false);
+            }
+
+            slave_ptr->read(time, duration);
+        }
+
         return hardware_interface::return_type::OK;
     };
 
-    hardware_interface::return_type SOEMDriver::write(const rclcpp::Time &, const rclcpp::Duration &)
+    hardware_interface::return_type SOEMDriver::write(const rclcpp::Time &time, const rclcpp::Duration &duration)
     {
+        // make slaves write new process data and requeset mailbox sends
+        for (auto slave_ptr : initialized_slaves)
+        {
+            auto& slave_da = master.slaves_data_access[slave_ptr->_position_ec_bus - 1];
+
+            slave_ptr->write(time, duration);
+
+            //// send mailbox
+            if(!slave_da.send_mbx_request.load())
+            { // no ongoing send operation
+                slave_ptr->mbx_send_queue.consume_one([&](auto msg){
+                    std::copy_n(msg.begin(), std::min(msg.size(), slave_da.SMbx.size()), slave_da.SMbx.begin());
+                });
+                slave_da.send_mbx_request.store(true);
+            }
+        }
+
+        // transfer new process data to bus from slave module working buffers
+        master.transfer_RxPDO();
+
         return hardware_interface::return_type::OK;
     };
 
     // hardware_interface::return_type SOEMDriver::prepare_command_mode_switch(const std::vector<std::string> & start_interfaces, const std::vector<std::string> & stop_interfaces){};
     // hardware_interface::return_type SOEMDriver::perform_command_mode_switch(const std::vector<std::string> & start_interfaces, const std::vector<std::string> & stop_interfaces){};
 
-    CallbackReturn SOEMDriver::on_deactivate(const rclcpp_lifecycle::State &previous_state)
+    CallbackReturn SOEMDriver::on_deactivate(const rclcpp_lifecycle::State & /* previous_state */)
     {
+        master.stop();
         return CallbackReturn::SUCCESS;
     };
 

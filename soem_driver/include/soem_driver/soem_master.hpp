@@ -58,11 +58,11 @@ namespace soem_master
         SOEMEcSlaveInfo &slave_info;
 
         // output data
-        soem_driver::buffer RxPDO;
+        const soem_driver::buffer RxPDO;
         // input data
         const soem_driver::buffer TxPDO;
         // send mailbox
-        soem_driver::buffer SMbx;
+        const soem_driver::buffer SMbx;
         // receive mailbox
         const soem_driver::buffer RMbx;
 
@@ -83,9 +83,17 @@ namespace soem_master
         SOEMMaster();
         ~SOEMMaster();
 
+        // EC configuration
+        std::chrono::microseconds timeout_process_data; // = EC_TIMEOUTRET
+        std::chrono::microseconds timeout_mbx_send;     // = EC_TIMEOUTTXM
+        std::chrono::microseconds timeout_mbx_receive;  // = EC_TIMEOUTRXM
+
         std::string __logger_name;
         const std::deque<SOEMEcSlaveInfo> &slaves;
-        const std::deque<SOEMEcSlaveDataAccess> &slaves_data_access;
+        // TODO(bitmeal): fix constnes
+        // const STL containers propagate const to elements; span does not
+        // only populated after calling start_bus()
+        std::deque<SOEMEcSlaveDataAccess> &slaves_data_access;
 
         // initialize interface and scan bus for slaves
         void init(const std::string &interface);
@@ -106,16 +114,10 @@ namespace soem_master
 
         void slave_attach_SDO_setup_hook(const SOEMEcSlaveInfo &slave, std::function<void(soem_driver::SDOwrite_t)> hook_fn);
 
-        // get buffer to working set of slaves RxPDO & RxPDO
-        // call after calling start_bus() only!
-        soem_driver::buffer getRxPDO(SOEMEcSlaveInfo slave);
-        const soem_driver::buffer getTxPDO(SOEMEcSlaveInfo slave);
-        soem_driver::buffer getSMbx(SOEMEcSlaveInfo slave);
-        const soem_driver::buffer getRMbx(SOEMEcSlaveInfo slave);
-
     private:
         std::map<uint16_t, std::function<void(soem_driver::SDOwrite_t)>> SDO_setup_hook_store;
 
+        // PDOs
         std::vector<std::byte> IOmap;
 
         // RxPDO / Output
@@ -130,10 +132,26 @@ namespace soem_master
         alignas(cacheline_width) std::atomic_bool TxPDO_transfer;
         // boost::lockfree::spsc_queue<std::vector<std::byte>> TxPDO_transfer_queue;
 
-        // mailbox buffers
-        std::vector<std::vector<std::byte>> SMbx;
-        std::vector<std::vector<std::byte>> RMbx;
+        // MBX
+        // send MBX / slave IN/RX
+        ec_mbxbuft EC_SMbx;
+        soem_driver::buffer SMbx;
+        std::vector<std::vector<std::byte>> SMbx_working;
 
+        // receive MBX / slave OUT/TX
+        ec_mbxbuft EC_RMbx;
+        soem_driver::buffer RMbx;
+        std::vector<std::vector<std::byte>> RMbx_working;
+        
+        // get buffer to working set of slaves RxPDO & RxPDO
+        // call after calling start_bus() only!
+        // private now: use slave data access structures for slave DA!
+        const soem_driver::buffer getRxPDO(SOEMEcSlaveInfo slave);
+        const soem_driver::buffer getTxPDO(SOEMEcSlaveInfo slave);
+        const soem_driver::buffer getSMbx(SOEMEcSlaveInfo slave);
+        const soem_driver::buffer getRMbx(SOEMEcSlaveInfo slave);
+        
+        // slave information/access structures
         std::deque<SOEMEcSlaveInfo> _slaves;
         std::deque<SOEMEcSlaveDataAccess> _slaves_data_access;
 
@@ -196,6 +214,8 @@ namespace soem_master
         //     0                  // .manualstatechange
         // };
         ////////////////////////////
+
+        bool is_init;
 
         alignas(cacheline_width) std::atomic_int cycle_counter;
         alignas(cacheline_width) std::thread cyclic_master;

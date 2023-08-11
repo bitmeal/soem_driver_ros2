@@ -12,9 +12,8 @@
 
 
 #include "soem_driver_common/soem_driver_common.hpp"
-
 #include "soem_driver_slave_interface/soem_driver_slave.hpp"
-
+#include "soem_driver/soem_master.hpp"
 #include "soem_driver/claims_resolver.hpp"
 
 using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
@@ -71,9 +70,13 @@ namespace soem_driver
         std::vector<EcSlavePluginInfo> slave_infos;
         // map from: <joint> --> [<claim>]
         std::unordered_map<std::string, std::vector<std::string>> joint_claims;
+        std::vector<std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave>> initialized_slaves;
+        
         std::string ec_interface;
+        std::chrono::microseconds ec_cycle_us;
+        soem_master::SOEMMaster master;
 
-
+        // URDF hardware info parsind
         std::string _get_text_for_element(
             const tinyxml2::XMLElement *element_it, const std::string &tag_name);
         std::string _get_attribute_value(

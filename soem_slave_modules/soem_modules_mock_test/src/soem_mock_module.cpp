@@ -13,7 +13,7 @@ namespace soem_slave_modules
         std::vector<double> state_interfaces;
         std::vector<double> command_interfaces;
 
-        bool init(std::unordered_map<std::string, std::string> parameters)
+        bool init(std::unordered_map<std::string, std::string> /* parameters */)
         {
             RCLCPP_INFO(rclcpp::get_logger("soem_slave_modules/soem_mock_module"), "soem_mock_module instantiated");
 
@@ -50,16 +50,17 @@ namespace soem_slave_modules
                  {"actuator_unit", "effort", &command_interfaces[5]}});
         };
 
-        virtual void configure(
-            uint64_t vendor_id,
-            uint64_t product_code,
-            uint64_t revision_number,
-            std::unordered_map<std::string, std::string> parameters)
+        virtual bool configure(
+            uint64_t /* vendor_id */,
+            uint64_t /* product_code */,
+            uint64_t /* revision_number */,
+            std::unordered_map<std::string, std::string> /* parameters */)
         {
             RCLCPP_INFO(rclcpp::get_logger("soem_slave_modules/soem_mock_module"), "soem_mock_module - call to: %s", __FUNCTION__);
+            return true;
         };
 
-        virtual void setup_SDO_hook(soem_driver::SDOwrite_t SDOwrite)
+        virtual void setup_SDO_hook(soem_driver::SDOwrite_t /* SDOwrite */)
         {
             RCLCPP_INFO(rclcpp::get_logger("soem_slave_modules/soem_mock_module"), "soem_mock_module - call to: %s", __FUNCTION__);
         };

@@ -17,13 +17,16 @@ find_package(rclcpp_lifecycle REQUIRED)
 find_package(soem_driver_common REQUIRED)
 find_package(soem_driver_slave_interface REQUIRED)
 find_package(Threads REQUIRED)
-find_package(Boost REQUIRED)
+# find_package(Boost REQUIRED)
 
 # expects soem headers to be found as "soem/*.h"
 find_package(soem QUIET)
 if(NOT SOEM_FOUND)
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/soem)
 endif()
+
+# build soem for use in shared library
+set_property(TARGET soem PROPERTY POSITION_INDEPENDENT_CODE TRUE)
 
 
 
@@ -33,6 +36,9 @@ set_property(TARGET soem_master PROPERTY CXX_STANDARD 20)
 # use SOEM without global/static context
 target_compile_definitions(soem_master PUBLIC EC_VER2)
 
+# build for use in shared library
+set_property(TARGET soem_master PROPERTY POSITION_INDEPENDENT_CODE TRUE)
+
 target_include_directories(soem_master PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
@@ -41,7 +47,7 @@ target_include_directories(soem_master PUBLIC
 target_link_libraries(soem_master
   soem
   Threads::Threads
-  Boost::boost
+  # Boost::boost
 )
 
 ament_target_dependencies(
@@ -56,7 +62,6 @@ add_library(
   ${PROJECT_NAME}
   SHARED
   src/soem_driver.cpp
-  # src/soem_master.cpp
 )
 
 set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 20)
@@ -123,6 +128,8 @@ if(BUILD_TESTING)
     ros2_control_test_assets
   )
 
+  #####################################
+  # NON-AUTOMATED TEST
   add_executable(test_soem_master test/test_soem_master.cpp)
   set_property(TARGET test_soem_master PROPERTY CXX_STANDARD 20)
   # target_link_libraries(test_soem_master soem_driver)
@@ -132,6 +139,8 @@ if(BUILD_TESTING)
     rclcpp
     # soem_driver
   )
+  #####################################
+
 endif()
 
 ## EXPORTS

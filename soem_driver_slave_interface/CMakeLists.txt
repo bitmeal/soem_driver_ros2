@@ -10,6 +10,7 @@ find_package(ament_cmake REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(soem_driver_common REQUIRED)
+find_package(Boost REQUIRED)
 
 ament_export_include_directories(
   include
@@ -30,8 +31,8 @@ target_include_directories(${PROJECT_NAME} INTERFACE
 target_link_libraries(${PROJECT_NAME} INTERFACE
   hardware_interface
   rclcpp
-  # soem_driver
   soem_driver_common
+  Boost::boost
 )
 
 # ament_target_dependencies(
@@ -68,5 +69,6 @@ ament_export_dependencies(
   rclcpp
   hardware_interface
   soem_driver_common
+  Boost
 )
 ament_package()

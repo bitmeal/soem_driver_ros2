@@ -1,15 +1,28 @@
 # ROS2 control - SOEM EtherCAT driver
 ## hardware configuration
 ### load plugin and configure network device to use
-> ℹ use `xacro` macros to make network interface configurable
+> ℹ use `xacro` macros to make network interface and realtime loop cycle time configurable
 ```xml
   <ros2_control name="GenericSystem" type="system">
     <hardware>
       <plugin>soem_driver/SOEMDriver</plugin>
       <ec_interface>eth1</ec_interface>
+      <ec_cycle_us>1000</ec_cycle_us>
+      
+      <ec_timeout_pd_us>200</ec_timeout_pd_us>
+      <ec_timeout_mbxrx_us>100</ec_timeout_mbxrx_us>
+      <ec_timeout_mbxtx_us>100</ec_timeout_mbxtx_us>
     </hardware>
   </ros2_control>
 ```
+`ec_interface` and `ec_cycle_us`(µ-seconds) are **mandatory** configuration parameters.
+
+
+If desired, configure EtherCAT timeouts in µ-seconds:
+* `ec_timeout_pd_us`: time to wait for process data to be available
+* `ec_timeout_mbxrx_us`: time to wait for mailbox read operation
+* `ec_timeout_mbxtx_us`: time to wait for mailbox write operation
+
 
 ### configure slaves to use
 configure all slaves on the bus, to be used for command or state interfaces of your robot. slaves may export multiple logical functions or functional units, that may each provide only a limited subset of the required functionality of a complete joint, or make one slave serve multiple joints. slaves export these as named *claims* and joints consume a number of these claims, by name of the slave and claim.
@@ -23,6 +36,7 @@ configure all slaves on the bus, to be used for command or state interfaces of y
     <hardware>
       <plugin>soem_driver/SOEMDriver</plugin>
       <ec_interface>eth1</ec_interface>
+      <ec_cycle_us>1000</ec_cycle_us>
       
       <!-- slave configuration -->
       
@@ -183,7 +197,7 @@ Sequence of method calls throughout lifecycle, aligned to the lifecycle of the S
 
 No bus access and communication is possible when configuring (`configure()` call). Performing advanced initialization procedures has to be handled by implementing the necessary logic and state machines in the cyclic calls to `read()` and `write()`.
 
-When initialized and while operating, the `read()` and `write()` methods will be called continuously. Use them to map and transform the data between `RxPDO` & `TxPDO` members and the exported state and command interfaces. When necessary, you may send mailbox messages to your slave by calling `schedule_Mbx_send(msg, callback)`, if callback is given, we expect the slave to respond with a mailbox message itself and call the callback function upon reception.
+When initialized and while operating, the `read()` and `write()` methods will be called continuously. Use them to map and transform the data between `RxPDO`/`TxPDO` members and the exported *state* and *command interfaces*. When necessary, you may send mailbox messages to your slave by calling `mbx_enqueue_send(msg)`. If setting member `fetch_mailbox = true`, the physical slaves mailbox will be read for messages. The driver module can call `mbx_consume_incoming(callback)` to consume and operat on all pending mailbox messages with the given callback. *You only get a non-owning buffer in the callback. Copy the data if you need it later!*
 
 ## internals
 ### call sequence
@@ -194,6 +208,7 @@ When initialized and while operating, the `read()` and `write()` methods will be
   * master: `init()`
   * slave modules: `configure()`
   * master: `start_bus()` (SAFE OP)
+  * driver: assigns PDOs to slave modules
 * driver: `on_activate()`
   * master: `run()`
 * <loop>
@@ -204,7 +219,12 @@ When initialized and while operating, the `read()` and `write()` methods will be
 simple `std::span<std::byte>`, deeper dive in [3]
 
 ## TODO
-* what to do with bit oriented slaves?
+[ ] what to do with bit oriented slaves?
+[ ] future/promise as synchronization primitive for mailboxes with ethercat thread?
+[ ] check parsed joints and mappings in tests
+[ ] logging queue from realtime loop
+[ ] mechanism to log/publish diagnostic messages; even from slave modules
+[ ] actualle reference all given references in README
 
 ## References
 * [0] https://github.com/OpenEtherCATsociety/SOEM

@@ -45,13 +45,13 @@ namespace soem_master
     };
 
     // store context to master mappings to resolve from c-style non member function pointers
-    std::map<ecx_contextt *, SOEMMaster &> SOEMCtxMasterMapping;
+    std::map<ecx_contextt *, std::reference_wrapper<SOEMMaster>> SOEMCtxMasterMapping;
 
     // resolve context
     template <auto Callee, typename... Args>
     auto fnptr_call_SOEMMaster_member(ecx_contextt *ecx_context, Args... args)
     {
-        return std::bind(Callee, &(SOEMCtxMasterMapping.at(ecx_context)), args...)();
+        return std::bind(Callee, &(SOEMCtxMasterMapping.at(ecx_context).get()), args...)();
     };
     // template <auto Callee, typename... Args>
     // auto caller(Args &&...args)
@@ -61,14 +61,21 @@ namespace soem_master
     // };
 
     SOEMMaster::SOEMMaster()
-        : __logger_name("soem_master"), slaves(_slaves),
-          RxPDO_working({}), TxPDO_working({}),
-          RxPDO_transfer(false), TxPDO_transfer(false),
-          SMbx({}), RMbx({}),
+        : timeout_process_data(EC_TIMEOUTRET),
+          timeout_mbx_send(EC_TIMEOUTTXM),
+          timeout_mbx_receive(EC_TIMEOUTRXM),
+          __logger_name("soem_master"),
+          slaves(_slaves),
           slaves_data_access(_slaves_data_access),
-          //   RxPDO_transfer_queue(1), TxPDO_transfer_queue(1),
-          cyclic_master_terminate(false), cyclic_master_running(false),
           IOmap({}),
+          RxPDO_working({}),
+          RxPDO_transfer(false),
+          TxPDO_working({}),
+          TxPDO_transfer(false),
+          SMbx((std::byte *)EC_SMbx, sizeof(EC_SMbx)),
+          SMbx_working({}),
+          RMbx((std::byte *)EC_RMbx, sizeof(EC_RMbx)),
+          RMbx_working({}),
           ecx_context({
               &ecx_port,         // .port          =
               &ec_slave[0],      // .slavelist     =
@@ -93,19 +100,27 @@ namespace soem_master
               NULL,              // .FOEhook()
               NULL,              // .EOEhook()
               0                  // .manualstatechange
-          })
+          }),
+          is_init(false),
+          cycle_counter(0),
+          cyclic_master({}),
+          cyclic_master_terminate(false),
+          cyclic_master_running(false)
 
     {
         // register to resolve instance from context pointer
-        SOEMCtxMasterMapping.insert(std::pair<ecx_contextt *, SOEMMaster &>(&ecx_context, *this));
+        SOEMCtxMasterMapping.insert(std::pair<ecx_contextt *, std::reference_wrapper<SOEMMaster>>(&ecx_context, std::ref(*this)));
     };
     SOEMMaster::~SOEMMaster()
     {
-        bus_down_SAFE_OP();
+        if(is_init)
+        {
+            bus_down_SAFE_OP();
 
-        ecx_close(&ecx_context);
-        RCLCPP_INFO(rclcpp::get_logger(__logger_name), "closed EtherCAT communication");
-
+            ecx_close(&ecx_context);
+            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "closed EtherCAT communication");
+        }
+        
         // unregister for resolution from context pointer
         SOEMCtxMasterMapping.erase(&ecx_context);
         RCLCPP_INFO(rclcpp::get_logger(__logger_name), "unregistered SOEM master instance: %ld left", SOEMCtxMasterMapping.size());
@@ -154,6 +169,8 @@ namespace soem_master
         {
             throw std::runtime_error("could not initialize EtherCAT communication on interface " + interface);
         }
+
+        is_init = true;
     };
 
     // get all devices to SAFE_OP state, calling attached SDO setup hooks on transition from PO to SO
@@ -180,13 +197,13 @@ namespace soem_master
         std::copy(TxPDO_IOmap.begin(), TxPDO_IOmap.end(), TxPDO_working.begin());
 
         // setup mailbox buffers and slave data access structures
-        SMbx.resize(slaves.size(), {});
-        RMbx.resize(slaves.size(), {});
+        SMbx_working.resize(slaves.size(), {});
+        RMbx_working.resize(slaves.size(), {});
         // _slaves_data_access.reserve(slaves.size());
         for (auto &&slave : _slaves)
         {
-            SMbx[slave.position - 1].resize(ec_slave[slave.position].mbx_l, std::byte(0x00));
-            RMbx[slave.position - 1].resize(ec_slave[slave.position].mbx_rl, std::byte(0x00));
+            SMbx_working[slave.position - 1].resize(ec_slave[slave.position].mbx_l, std::byte(0x00));
+            RMbx_working[slave.position - 1].resize(ec_slave[slave.position].mbx_rl, std::byte(0x00));
             _slaves_data_access.emplace_back(slave, getRxPDO(slave), getTxPDO(slave), getSMbx(slave), getRMbx(slave));
         }
 
@@ -240,6 +257,7 @@ namespace soem_master
 
     void SOEMMaster::bus_down_SAFE_OP()
     {
+
         RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Requesting SAFE_OP for all slaves");
         ec_slave[0].state = EC_STATE_SAFE_OP;
         ecx_writestate(&ecx_context, 0);
@@ -270,7 +288,7 @@ namespace soem_master
                 // TODO(bitmeal): issue warning
             }
 
-            if (!ecx_receive_processdata(&ecx_context, EC_TIMEOUTRET))
+            if (!ecx_receive_processdata(&ecx_context, timeout_process_data.count()))
             {
                 // TODO(bitmeal): issue warning
                 // TODO(bitmeal): track error count and exit if too many
@@ -284,8 +302,42 @@ namespace soem_master
                 TxPDO_transfer.notify_one();
             }
 
-            // TODO(bitmeal): send and receive mailboxes
+            // send all mailboxes
+            for (auto &&slave_da : _slaves_data_access)
+            {
+                if (slave_da.send_mbx_request.load())
+                {
+                    // load data to send buffer; SMbx is buffer view to EC_SMbx
+                    ec_clearmbx(&EC_SMbx);
+                    std::copy(slave_da.SMbx.begin(), slave_da.SMbx.end(), SMbx.begin());
 
+                    if (0 < ecx_mbxsend(&ecx_context, slave_da.slave_info.position, &EC_SMbx, timeout_mbx_send.count()))
+                    {
+                        // success; reset request
+                        slave_da.send_mbx_request.store(false);
+                        slave_da.send_mbx_request.notify_one();
+                    }
+                }
+            }
+
+            // receive all mailboxes
+            for (auto &&slave_da : _slaves_data_access)
+            {
+                if (slave_da.receive_mbx.load() && !slave_da.receive_mbx_has_unread.load())
+                {
+                    ec_clearmbx(&EC_RMbx);
+                    if (0 < ecx_mbxreceive(&ecx_context, slave_da.slave_info.position, &EC_RMbx, timeout_mbx_receive.count()))
+                    {
+                        // load data to slaves receive buffer; RMbx is buffer view to EC_RMbx
+                        std::copy_n(RMbx.begin(), slave_da.RMbx.size(), slave_da.RMbx.begin());
+
+                        slave_da.receive_mbx_has_unread.store(true);
+                        slave_da.receive_mbx_has_unread.notify_one();
+                    }
+                }
+            }
+
+            // check for EtherCAT errors in SOEM
             if (ecx_iserror(&ecx_context))
             {
                 // TODO(bitmeal): issue warning
@@ -362,7 +414,7 @@ namespace soem_master
 
     // get buffer to working set of slaves RxPDO
     // call after calling start_bus() only!
-    soem_driver::buffer SOEMMaster::getRxPDO(SOEMEcSlaveInfo slave)
+    const soem_driver::buffer SOEMMaster::getRxPDO(SOEMEcSlaveInfo slave)
     {
         size_t slave_outputs_offset = ec_slave[slave.position].outputs - ec_group[0].outputs;
         return {RxPDO_working.data() + slave_outputs_offset, ec_slave[slave.position].Obytes};
@@ -376,14 +428,14 @@ namespace soem_master
         return {TxPDO_working.data() + slave_inputs_offset, ec_slave[slave.position].Ibytes};
     };
 
-    soem_driver::buffer SOEMMaster::getSMbx(SOEMEcSlaveInfo slave)
+    const soem_driver::buffer SOEMMaster::getSMbx(SOEMEcSlaveInfo slave)
     {
-        auto holding_buffer = SMbx[slave.position - 1];
+        auto holding_buffer = SMbx_working[slave.position - 1];
         return {holding_buffer.data(), holding_buffer.size()};
     };
     const soem_driver::buffer SOEMMaster::getRMbx(SOEMEcSlaveInfo slave)
     {
-        auto holding_buffer = RMbx[slave.position - 1];
+        auto holding_buffer = RMbx_working[slave.position - 1];
         return {holding_buffer.data(), holding_buffer.size()};
     };
 
