@@ -336,6 +336,9 @@ namespace soem_driver
             try
             {
                 auto slave_plugin = slave_loader_.createSharedInstance(slave.plugin_name);
+                // TODO(bitmeal): modify modules logger names
+                // slave_plugin->__logger_name
+                
                 if (!slave_plugin->init(slave.parameters))
                 {
                     RCLCPP_ERROR(rclcpp::get_logger(__logger_name), "failed to load plugin %s for slave %s", slave.plugin_name.c_str(), slave.name.c_str());

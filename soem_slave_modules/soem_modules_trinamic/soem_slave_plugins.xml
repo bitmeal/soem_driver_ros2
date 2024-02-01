@@ -1,0 +1,5 @@
+<library path="soem_modules_trinamic">
+  <class name="soem_slave_modules/trinamic_tmcm1610" type="soem_slave_modules::TrinamicTMCM1610" base_class_type="soem_driver_slave_interface::SOEMDriverSlave">
+    <description>EtherCAT Coupler.</description>
+  </class>
+</library>

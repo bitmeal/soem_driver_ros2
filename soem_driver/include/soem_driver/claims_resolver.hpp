@@ -172,7 +172,7 @@ namespace soem_driver
                                             auto alias_factory = AliasInterfaceFactory{interface};
                                             mappend_interfaces.push_back(interface.get_interface_name());
                                             state_interfaces.emplace_back(
-                                                    alias_factory.makeInterface<hardware_interface::StateInterface>(slave, interface.get_interface_name())
+                                                    alias_factory.makeInterface<hardware_interface::StateInterface>(joint, interface.get_interface_name())
                                                 );
 
                                             RCLCPP_INFO(rclcpp::get_logger(__logger_name), "mapping state interface: %s/%s to %s/%s", joint.c_str(), interface.get_interface_name().c_str(), slave.c_str(), interface.get_name().c_str());
@@ -259,7 +259,7 @@ namespace soem_driver
                                             auto alias_factory = AliasInterfaceFactory{interface};
                                             mappend_interfaces.push_back(interface.get_interface_name());
                                             command_interfaces.emplace_back(
-                                                        alias_factory.makeInterface<hardware_interface::CommandInterface>(slave, interface.get_interface_name())
+                                                        alias_factory.makeInterface<hardware_interface::CommandInterface>(joint, interface.get_interface_name())
                                                 );
 
                                             // store mapping for resolution in command mode changes

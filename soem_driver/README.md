@@ -60,7 +60,7 @@ configure all slaves on the bus, to be used for command or state interfaces of y
 ```
 
 ### configure joint claims
-configure function claims of a joint by specifying the slaves' and claims' name, separated by a `/`; e.g. `controller_0/drive_0`. Provide the claims as a *YAML* sequence (list) of strings. For a single claim you may use a string without embedding into a sequence. command and state interface mapping between joints and slave claims is performed automatically. to use only a specific command or state interface of a claim, specify it as `<slave>/<claim>/[state|command]/<interface_name>`. See next section for mor info.
+configure function claims of a joint by specifying the slaves' and claims' name, separated by a `/`; e.g. `controller_0/drive_0`. Provide the claims as a *YAML* sequence (list) of strings. For a single claim you may use a string without embedding into a sequence. command and state interface mapping between joints and slave claims is performed automatically. to use only a specific command or state interface of a claim, specify it as `<slave>/<claim>/[state|command]/<interface_name>`. See next section for more info.
 ```xml
   <ros2_control name="GenericSystem" type="system">
 
@@ -197,7 +197,7 @@ Sequence of method calls throughout lifecycle, aligned to the lifecycle of the S
 
 No bus access and communication is possible when configuring (`configure()` call). Performing advanced initialization procedures has to be handled by implementing the necessary logic and state machines in the cyclic calls to `read()` and `write()`.
 
-When initialized and while operating, the `read()` and `write()` methods will be called continuously. Use them to map and transform the data between `RxPDO`/`TxPDO` members and the exported *state* and *command interfaces*. When necessary, you may send mailbox messages to your slave by calling `mbx_enqueue_send(msg)`. If setting member `fetch_mailbox = true`, the physical slaves mailbox will be read for messages. The driver module can call `mbx_consume_incoming(callback)` to consume and operat on all pending mailbox messages with the given callback. *You only get a non-owning buffer in the callback. Copy the data if you need it later!*
+When initialized and while operating, the `read()` and `write()` methods will be called continuously. Use them to map and transform the data between `RxPDO`/`TxPDO` members and the exported *state* and *command interfaces*. When necessary, you may send mailbox messages to your slave by calling `mbx_enqueue_send(msg)`. If setting member `fetch_mailbox = true`, the physical slaves mailbox will be read for messages. The driver module can call `mbx_consume_incoming(callback)` to consume and operate on all pending mailbox messages with the given callback. *You only get a non-owning buffer in the callback. Copy the data if you need it later!*
 
 ## internals
 ### call sequence
@@ -219,12 +219,12 @@ When initialized and while operating, the `read()` and `write()` methods will be
 simple `std::span<std::byte>`, deeper dive in [3]
 
 ## TODO
-[ ] what to do with bit oriented slaves?
-[ ] future/promise as synchronization primitive for mailboxes with ethercat thread?
-[ ] check parsed joints and mappings in tests
-[ ] logging queue from realtime loop
-[ ] mechanism to log/publish diagnostic messages; even from slave modules
-[ ] actualle reference all given references in README
+* [ ] what to do with bit oriented slaves?
+* [ ] future/promise as synchronization primitive for mailboxes with ethercat thread?
+* [ ] check parsed joints and mappings in tests
+* [ ] logging queue from realtime loop
+* [ ] mechanism to log/publish diagnostic messages; even from slave modules
+* [ ] actually reference all given references in README
 
 ## References
 * [0] https://github.com/OpenEtherCATsociety/SOEM
