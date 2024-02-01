@@ -113,6 +113,9 @@ namespace soem_master
     };
     SOEMMaster::~SOEMMaster()
     {
+        // stop and join thread
+        stop();
+
         if(is_init)
         {
             bus_down_SAFE_OP();

@@ -60,7 +60,10 @@ namespace soem_driver
     private:
         std::string __logger_name;
 
-        ECClaimsResolver claims_resolver;
+        // member order for correct destruction, of all memers holding shared pointers to loaded libraries:
+        //  |- slaves
+        //  `-> initialized_slaves
+        //    `-> claims_resolver
         pluginlib::ClassLoader<soem_driver_slave_interface::SOEMDriverSlave>
             slave_loader_{
                 "soem_driver_slave_interface", "soem_driver_slave_interface::SOEMDriverSlave"};
@@ -72,6 +75,8 @@ namespace soem_driver
         std::unordered_map<std::string, std::vector<std::string>> joint_claims;
         std::vector<std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave>> initialized_slaves;
         
+        ECClaimsResolver claims_resolver;
+
         std::string ec_interface;
         std::chrono::microseconds ec_cycle_us;
         soem_master::SOEMMaster master;
