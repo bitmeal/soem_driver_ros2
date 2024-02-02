@@ -132,6 +132,20 @@ namespace soem_driver_slave_interface
 
         virtual void setup_SDO_hook(soem_driver::SDOwrite_t /* SDOwrite */){};
 
+        virtual hardware_interface::return_type prepare_command_mode_switch(
+            const std::vector<std::string> & /*start_interfaces*/,
+            const std::vector<std::string> & /*stop_interfaces*/)
+        {
+            return hardware_interface::return_type::OK;
+        };
+
+        virtual hardware_interface::return_type perform_command_mode_switch(
+            const std::vector<std::string> & /*start_interfaces*/,
+            const std::vector<std::string> & /*stop_interfaces*/)
+        {
+            return hardware_interface::return_type::OK;
+        };
+
         virtual hardware_interface::return_type read(const rclcpp::Time &, const rclcpp::Duration &) = 0;
         virtual hardware_interface::return_type write(const rclcpp::Time &, const rclcpp::Duration &) = 0;
     };

@@ -286,8 +286,101 @@ namespace soem_driver
         };
 
         // map from: joint interface --> slaves scoped claims interface
-        // hardware_interface::return_type prepare_command_mode_switch(const std::vector<std::string> & start_interfaces, const std::vector<std::string> & stop_interfaces) override;
-        // hardware_interface::return_type perform_command_mode_switch(const std::vector<std::string> & start_interfaces, const std::vector<std::string> & stop_interfaces) override;
+        hardware_interface::return_type prepare_command_mode_switch(
+            const std::vector<std::string> &start_interfaces,
+            const std::vector<std::string> &stop_interfaces)
+        {
+            std::unordered_map<std::string, std::vector<std::string>> start_claims_by_slave;
+            std::unordered_map<std::string, std::vector<std::string>> stop_claims_by_slave;
+
+            std::for_each(start_interfaces.begin(), start_interfaces.end(), [&](auto &start_interface)
+                          {
+                auto [slave, claim] = joint_command_interface_map[start_interface];
+                start_claims_by_slave[slave].push_back(claim); });
+
+            std::for_each(stop_interfaces.begin(), stop_interfaces.end(), [&](auto &stop_interface)
+                          {
+                auto [slave, claim] = joint_command_interface_map[stop_interface];
+                stop_claims_by_slave[slave].push_back(claim); });
+
+            std::vector<std::pair<std::string, hardware_interface::return_type>> slave_mode_switch_response;
+            std::transform(slaves.begin(), slaves.end(), std::inserter(slave_mode_switch_response, slave_mode_switch_response.end()),
+                           [&](auto &slave) -> std::pair<std::string, hardware_interface::return_type>
+                           {
+                               auto [name, instance] = slave;
+                               return {name, instance->prepare_command_mode_switch(start_claims_by_slave[name], stop_claims_by_slave[name])};
+                           });
+
+            // TODO(bitmeal): remove debugging output
+            std::for_each(slave_mode_switch_response.begin(), slave_mode_switch_response.end(),
+                          [&](auto &slave_mode_switch_response)
+                          {
+                              RCLCPP_INFO(rclcpp::get_logger(__logger_name), "prepare command mode switch for %s -> %s",
+                                          slave_mode_switch_response.first.c_str(),
+                                          slave_mode_switch_response.second == hardware_interface::return_type::OK ? "OK" : "ERROR");
+                          });
+
+            if (std::find_if(slave_mode_switch_response.begin(), slave_mode_switch_response.end(),
+                             [](auto &slave_mode_switch_response)
+                             {
+                                 return slave_mode_switch_response.second != hardware_interface::return_type::OK;
+                             }) == slave_mode_switch_response.end())
+            {
+                return hardware_interface::return_type::OK;
+            }
+            else
+            {
+                return hardware_interface::return_type::ERROR;
+            }
+        };
+
+        hardware_interface::return_type perform_command_mode_switch(
+            const std::vector<std::string> & start_interfaces,
+            const std::vector<std::string> & stop_interfaces)
+        {
+            std::unordered_map<std::string, std::vector<std::string>> start_claims_by_slave;
+            std::unordered_map<std::string, std::vector<std::string>> stop_claims_by_slave;
+
+            std::for_each(start_interfaces.begin(), start_interfaces.end(), [&](auto &start_interface)
+                          {
+                auto [slave, claim] = joint_command_interface_map[start_interface];
+                start_claims_by_slave[slave].push_back(claim); });
+
+            std::for_each(stop_interfaces.begin(), stop_interfaces.end(), [&](auto &stop_interface)
+                          {
+                auto [slave, claim] = joint_command_interface_map[stop_interface];
+                stop_claims_by_slave[slave].push_back(claim); });
+
+            std::vector<std::pair<std::string, hardware_interface::return_type>> slave_mode_switch_response;
+            std::transform(slaves.begin(), slaves.end(), std::inserter(slave_mode_switch_response, slave_mode_switch_response.end()),
+                           [&](auto &slave) -> std::pair<std::string, hardware_interface::return_type>
+                           {
+                               auto [name, instance] = slave;
+                               return {name, instance->perform_command_mode_switch(start_claims_by_slave[name], stop_claims_by_slave[name])};
+                           });
+
+            // TODO(bitmeal): remove debugging output
+            std::for_each(slave_mode_switch_response.begin(), slave_mode_switch_response.end(),
+                          [&](auto &slave_mode_switch_response)
+                          {
+                              RCLCPP_INFO(rclcpp::get_logger(__logger_name), "perform command mode switch for %s -> %s",
+                                          slave_mode_switch_response.first.c_str(),
+                                          slave_mode_switch_response.second == hardware_interface::return_type::OK ? "OK" : "ERROR");
+                          });
+
+            if (std::find_if(slave_mode_switch_response.begin(), slave_mode_switch_response.end(),
+                             [](auto &slave_mode_switch_response)
+                             {
+                                 return slave_mode_switch_response.second != hardware_interface::return_type::OK;
+                             }) == slave_mode_switch_response.end())
+            {
+                return hardware_interface::return_type::OK;
+            }
+            else
+            {
+                return hardware_interface::return_type::ERROR;
+            }
+        };
 
         ~ECClaimsResolver(){};
     };

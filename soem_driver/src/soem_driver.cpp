@@ -338,7 +338,7 @@ namespace soem_driver
                 auto slave_plugin = slave_loader_.createSharedInstance(slave.plugin_name);
                 // TODO(bitmeal): modify modules logger names
                 // slave_plugin->__logger_name
-                
+
                 if (!slave_plugin->init(slave.parameters))
                 {
                     RCLCPP_ERROR(rclcpp::get_logger(__logger_name), "failed to load plugin %s for slave %s", slave.plugin_name.c_str(), slave.name.c_str());
@@ -350,7 +350,7 @@ namespace soem_driver
             }
             catch (const std::exception &e)
             {
-                // we don't throw, but load remaining plugins. slaves may have uninitialized plugins in result
+                // we don't throw, but load remaining plugins. slaves may have uninitialized plugins as result
                 RCLCPP_ERROR(rclcpp::get_logger(__logger_name), "failed to load plugin %s for slave %s; threw: %s", slave.plugin_name.c_str(), slave.name.c_str(), e.what());
             }
         }
@@ -479,17 +479,15 @@ namespace soem_driver
         // make slaves read process data
         for (auto slave_ptr : initialized_slaves)
         {
-            auto& slave_da = master.slaves_data_access[slave_ptr->_position_ec_bus - 1];
+            auto &slave_da = master.slaves_data_access[slave_ptr->_position_ec_bus - 1];
             //// fetch read mailbox
             // transfer modules request to read mailbox to master
             slave_da.receive_mbx.store(slave_ptr->fetch_mailbox);
             // fetch mailbox content as long as master has pending messages
-            if(slave_da.receive_mbx_has_unread.load())
+            if (slave_da.receive_mbx_has_unread.load())
             {
-                slave_ptr->mbx_receive_queue.push({
-                    slave_da.RMbx.begin(),
-                    slave_da.RMbx.end()
-                });
+                slave_ptr->mbx_receive_queue.push({slave_da.RMbx.begin(),
+                                                   slave_da.RMbx.end()});
                 slave_da.receive_mbx_has_unread.store(false);
             }
 
@@ -504,16 +502,15 @@ namespace soem_driver
         // make slaves write new process data and requeset mailbox sends
         for (auto slave_ptr : initialized_slaves)
         {
-            auto& slave_da = master.slaves_data_access[slave_ptr->_position_ec_bus - 1];
+            auto &slave_da = master.slaves_data_access[slave_ptr->_position_ec_bus - 1];
 
             slave_ptr->write(time, duration);
 
             //// send mailbox
-            if(!slave_da.send_mbx_request.load())
+            if (!slave_da.send_mbx_request.load())
             { // no ongoing send operation
-                slave_ptr->mbx_send_queue.consume_one([&](auto msg){
-                    std::copy_n(msg.begin(), std::min(msg.size(), slave_da.SMbx.size()), slave_da.SMbx.begin());
-                });
+                slave_ptr->mbx_send_queue.consume_one([&](auto msg)
+                                                      { std::copy_n(msg.begin(), std::min(msg.size(), slave_da.SMbx.size()), slave_da.SMbx.begin()); });
                 slave_da.send_mbx_request.store(true);
             }
         }
@@ -524,8 +521,19 @@ namespace soem_driver
         return hardware_interface::return_type::OK;
     };
 
-    // hardware_interface::return_type SOEMDriver::prepare_command_mode_switch(const std::vector<std::string> & start_interfaces, const std::vector<std::string> & stop_interfaces){};
-    // hardware_interface::return_type SOEMDriver::perform_command_mode_switch(const std::vector<std::string> & start_interfaces, const std::vector<std::string> & stop_interfaces){};
+    hardware_interface::return_type SOEMDriver::prepare_command_mode_switch(
+        const std::vector<std::string> &start_interfaces,
+        const std::vector<std::string> &stop_interfaces)
+    {
+        return claims_resolver.prepare_command_mode_switch(start_interfaces, stop_interfaces);
+    };
+
+    hardware_interface::return_type SOEMDriver::perform_command_mode_switch(
+        const std::vector<std::string> &start_interfaces,
+        const std::vector<std::string> &stop_interfaces)
+    {
+        return claims_resolver.perform_command_mode_switch(start_interfaces, stop_interfaces);
+    };
 
     CallbackReturn SOEMDriver::on_deactivate(const rclcpp_lifecycle::State & /* previous_state */)
     {

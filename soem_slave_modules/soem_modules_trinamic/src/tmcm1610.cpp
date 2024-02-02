@@ -124,8 +124,55 @@ namespace soem_slave_modules
         } __attribute__((__packed__));
         static_assert(sizeof(MbxReceive_t) == 8);
 
+        // state symbols
+        enum COMMAND_MODE
+        {
+            NONE,
+            EFFORT,
+            VELOCITY,
+            POSITION
+        };
+
+        enum DRIVER_STATE
+        {
+            STARTUP,
+            WAITING_INITIALIZED_READ,
+            UNINITIALIZED,
+            WAITING_INITIALIZATION,
+            INITIALIZED // RUNNING
+        };
+
         //// MODULE IMPLEMENTATION
         const std::string __logger_name = "soem_slave_modules/trinamic_tmcm1610";
+
+        COMMAND_MODE command_mode = NONE;
+        DRIVER_STATE driver_state = STARTUP;
+
+        // TODO(bitmeal): handle gripper
+        std::string command_mode_to_claim(COMMAND_MODE command_mode) const
+        {
+            if (command_mode == POSITION)
+                return "joint/position";
+            if (command_mode == VELOCITY)
+                return "joint/velocity";
+            if (command_mode == EFFORT)
+                return "joint/effort";
+
+            return "";
+        };
+
+        // TODO(bitmeal): handle gripper
+        COMMAND_MODE claim_to_command_mode(const std::string &claim) const
+        {
+            if (claim == "joint/position")
+                return POSITION;
+            if (claim == "joint/velocity")
+                return VELOCITY;
+            if (claim == "joint/effort")
+                return EFFORT;
+
+            return NONE;
+        };
 
         constexpr static uint64_t vendor_id = 0x0286;
         constexpr static uint64_t product_code = 0x0070;
@@ -137,14 +184,14 @@ namespace soem_slave_modules
         std::vector<double> state_interfaces;
         std::vector<double> command_interfaces;
 
-        bool init(std::unordered_map<std::string, std::string> /* parameters */)
+        bool init(std::unordered_map<std::string, std::string> /* parameters */) override
         {
             RCLCPP_INFO(rclcpp::get_logger(__logger_name), "trinamic_tmcm1610 instantiated");
 
             return true;
         }
 
-        virtual std::vector<hardware_interface::StateInterface> export_state_interfaces()
+        virtual std::vector<hardware_interface::StateInterface> export_state_interfaces() override
         {
             state_interfaces.resize(4, NAN);
             return {
@@ -154,7 +201,7 @@ namespace soem_slave_modules
 
                 {"gripper", "position", &state_interfaces[3]}};
         };
-        virtual std::vector<hardware_interface::CommandInterface> export_command_interfaces()
+        std::vector<hardware_interface::CommandInterface> export_command_interfaces() override
         {
             command_interfaces.resize(4, NAN);
             return soem_driver::list_initialize_non_copyable_interface<hardware_interface::CommandInterface>(
@@ -165,11 +212,11 @@ namespace soem_slave_modules
                  {"gripper", "position", &command_interfaces[3]}});
         };
 
-        virtual bool configure(
+        bool configure(
             uint64_t vendor_id,
             uint64_t product_code,
             uint64_t /* revision_number */,
-            std::unordered_map<std::string, std::string> parameters)
+            std::unordered_map<std::string, std::string> parameters) override
         {
             // TODO(bitmeal): error handling for type conversions
             // TODO(bitmeal): gear ratio configuration using transmissions
@@ -220,24 +267,130 @@ namespace soem_slave_modules
             return true;
         };
 
-        virtual void setup_SDO_hook(soem_driver::SDOwrite_t /* SDOwrite */)
-        {
+        void setup_SDO_hook(soem_driver::SDOwrite_t /* SDOwrite */) override{
             // no SDO setup hook from PO --> SO necessary
             // RCLCPP_INFO(rclcpp::get_logger(__logger_name), "trinamic_tmcm1610 - call to: %s", __FUNCTION__);
         };
 
+        void log_command_mode_switch_interfaces_error(
+            const std::vector<std::string> &start_interfaces,
+            const std::vector<std::string> &stop_interfaces)
+        {
+            std::string start_interfaces_log;
+            std::for_each(start_interfaces.begin(), start_interfaces.end(),
+                          [&](auto &interface)
+                          {
+                              start_interfaces_log += interface;
+                              if (interface != start_interfaces.back())
+                              {
+                                  start_interfaces_log += ", ";
+                              }
+                          });
+
+            std::string stop_interfaces_log;
+            std::for_each(stop_interfaces.begin(), stop_interfaces.end(),
+                          [&](auto &interface)
+                          {
+                              stop_interfaces_log += interface;
+                              if (interface != stop_interfaces.back())
+                              {
+                                  stop_interfaces_log += ", ";
+                              }
+                          });
+
+            RCLCPP_ERROR(rclcpp::get_logger(__logger_name), "cannot satisfy requested command mode switch! start claims: %s; stop claims: %s", start_interfaces_log.c_str(), stop_interfaces_log.c_str());
+        }
+
+        hardware_interface::return_type prepare_command_mode_switch(
+            const std::vector<std::string> &start_interfaces,
+            const std::vector<std::string> &stop_interfaces) override
+        {
+            // TODO(bitmeal): handle gripper
+
+            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "trinamic_tmcm1610 - call to: %s", __FUNCTION__);
+
+            COMMAND_MODE next_command_mode = command_mode;
+
+            // set command mode to none, if in stop interfaces/claims
+            if (std::find(stop_interfaces.begin(), stop_interfaces.end(), command_mode_to_claim(next_command_mode)) != stop_interfaces.end())
+            {
+                next_command_mode = NONE;
+            }
+
+            // apply requested start interfaces/claims to next_command_mode
+            for(auto& start_interface : start_interfaces)
+            {
+                auto start_mode = claim_to_command_mode(start_interface);
+                if(
+                    start_mode == next_command_mode ||
+                    next_command_mode == NONE
+                )
+                {
+                    next_command_mode = start_mode;
+                }
+                else
+                {
+                    log_command_mode_switch_interfaces_error(start_interfaces, stop_interfaces);
+                    return hardware_interface::return_type::ERROR;
+                }
+            };
+
+            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "prepared command mode switch; next used claim: %s", command_mode_to_claim(next_command_mode).c_str());
+            return hardware_interface::return_type::OK;
+        };
+
+        hardware_interface::return_type perform_command_mode_switch(
+            const std::vector<std::string> &start_interfaces,
+            const std::vector<std::string> & stop_interfaces) override
+        {
+            // TODO(bitmeal): handle gripper
+
+            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "trinamic_tmcm1610 - call to: %s", __FUNCTION__);
+
+            COMMAND_MODE next_command_mode = command_mode;
+
+            // set command mode to none, if in stop interfaces/claims
+            if (std::find(stop_interfaces.begin(), stop_interfaces.end(), command_mode_to_claim(next_command_mode)) != stop_interfaces.end())
+            {
+                next_command_mode = NONE;
+            }
+
+            // apply requested start interfaces/claims to next_command_mode
+            for(auto& start_interface : start_interfaces)
+            {
+                auto start_mode = claim_to_command_mode(start_interface);
+                if(
+                    start_mode == next_command_mode ||
+                    next_command_mode == NONE
+                )
+                {
+                    next_command_mode = start_mode;
+                }
+                else
+                {
+                    log_command_mode_switch_interfaces_error(start_interfaces, stop_interfaces);
+                    return hardware_interface::return_type::ERROR;
+                }
+            };
+
+            // apply mode switch
+            command_mode = next_command_mode;
+
+            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "switched command mode; used claim: %s", command_mode_to_claim(next_command_mode).c_str());
+            return hardware_interface::return_type::OK;
+        };
+
         // make data from TxPDO available in state interface
-        virtual hardware_interface::return_type read(const rclcpp::Time &, const rclcpp::Duration &)
+        hardware_interface::return_type read(const rclcpp::Time &, const rclcpp::Duration &) override
         {
             // RCLCPP_INFO(rclcpp::get_logger(__logger_name), "trinamic_tmcm1610 - call to: %s", __FUNCTION__);
-            
+
             // TODO(bitmeal): state machine to read config and home axes
             // GAP 250: Encoder steps per rotation
             // GAP 251: Encoder direction (invert movement direction of axis)
-            
-            
+
             TxPDO_t TxPDO_map;
-            std::span<std::byte> TxPDO_map_buffer {reinterpret_cast<std::byte*>(&TxPDO_map), sizeof(TxPDO_map)};
+            std::span<std::byte> TxPDO_map_buffer{reinterpret_cast<std::byte *>(&TxPDO_map), sizeof(TxPDO_map)};
             std::copy(TxPDO.begin(), TxPDO.end(), TxPDO_map_buffer.begin());
 
             // TODO(bitmeal): convert to actual required units
@@ -251,7 +404,7 @@ namespace soem_slave_modules
         };
 
         // write data from command interface to RxPDO
-        virtual hardware_interface::return_type write(const rclcpp::Time &, const rclcpp::Duration &)
+        hardware_interface::return_type write(const rclcpp::Time &, const rclcpp::Duration &) override
         {
             // RCLCPP_INFO(rclcpp::get_logger(__logger_name), "trinamic_tmcm1610 - call to: %s", __FUNCTION__);
             return hardware_interface::return_type::OK;
