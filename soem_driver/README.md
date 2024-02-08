@@ -178,11 +178,10 @@ Claims may be consumed by joints in three ways:
 * a specific command or state interface of a claim `<slave>/<claim>/[state|command]/<interface_name>`
 
 
-Only command and state interfaces configured for a joint (in URDF) will be exported to the resource manager. Thus, if multiple claims requested by a joint provide a (e.g. `position` state-) interface, the first one, in order as specified, will be used.
+~~Only command and state interfaces configured for a joint (in URDF) will be exported to the resource manager. Thus, if multiple claims requested by a joint provide a (e.g. `position` state-) interface, the first one, in order as specified, will be used.~~
 
 ### command mode switches: mapping to slaves
-TODO: implement interface and "resolver"
-
+Command mode switches requested on a joint will be resolved to the exported claims of individual modules.
 
 ## implementing a slave driver module
 Derive from `soem_driver_slave_interface::SOEMDriverSlave`.
@@ -200,10 +199,16 @@ No bus access and communication is possible when configuring (`configure()` call
 When initialized and while operating, the `read()` and `write()` methods will be called continuously. Use them to map and transform the data between `RxPDO`/`TxPDO` members and the exported *state* and *command interfaces*. When necessary, you may send mailbox messages to your slave by calling `mbx_enqueue_send(msg)`. If setting member `fetch_mailbox = true`, the physical slaves mailbox will be read for messages. The driver module can call `mbx_consume_incoming(callback)` to consume and operate on all pending mailbox messages with the given callback. *You only get a non-owning buffer in the callback. Copy the data if you need it later!*
 
 ## internals
+the hardware interface implements and follows the call sequence of the lifecycle as shown below:
+![ROS2 controls hardware interface lifecycle](./doc/images/ros2_control_hardware_interface_lifecycle.png)
+source: https://github.com/ros-controls/ros2_control/issues/551#issuecomment-947174795
 ### call sequence
+the relation of the hardware interfaces method calls by the resource manager to the individual slaves driver modules is as follows:
 * driver: `on_init()`
   * load slave modules
   * slave modules: `init()`
+  * slave_modules: `export_state|command_interfaces()`
+* driver: `export_state|command_interfaces()`
 * driver: `on_configure()`
   * master: `init()`
   * slave modules: `configure()`
@@ -212,6 +217,10 @@ When initialized and while operating, the `read()` and `write()` methods will be
 * driver: `on_activate()`
   * master: `run()`
 * <loop>
+  * `read()`
+  * `write()`
+  * `prepare_command_mode_switch()`
+  * `perform_command_mode_switch()`
 * driver: `on_deactivate()`
   * master: `stop()`
 
@@ -223,6 +232,7 @@ simple `std::span<std::byte>`, deeper dive in [3]
 * [ ] future/promise as synchronization primitive for mailboxes with ethercat thread?
 * [ ] check parsed joints and mappings in tests
 * [ ] logging queue from realtime loop
+* [ ] check dynamic allocations in RT codepath
 * [ ] mechanism to log/publish diagnostic messages; even from slave modules
 * [ ] actually reference all given references in README
 

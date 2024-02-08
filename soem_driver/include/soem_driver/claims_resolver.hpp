@@ -52,7 +52,7 @@ namespace soem_driver
             slave_interfaces;
 
         // map command interfaces from <joint> --> {<slave>, <interface>}; use in command mode switching
-        std::unordered_map<std::string, std::pair<std::string, std::string>> joint_command_interface_map;
+        std::unordered_map<std::string, std::pair<std::string, std::string>> command_interface_map;
 
         // references to master structures
         std::unordered_map<std::string, std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave>> slaves;
@@ -107,23 +107,16 @@ namespace soem_driver
             return tokens_binder;
         }
 
-        // interfaces are built when needed (command interfaces are moveable, but not copyable)
-        std::vector<hardware_interface::StateInterface> export_state_interfaces()
+        std::vector<hardware_interface::StateInterface>
+        resolve_state_interfaces_by_joint(const std::string joint)
         {
-            std::vector<hardware_interface::StateInterface> state_interfaces;
+            std::vector<hardware_interface::StateInterface> joint_state_interfaces{};
+            std::vector<std::string> joint_mappend_interfaces{};
 
-            // TODO(bitmeal): rework using ranges with transform, filter and std::optional?
+            auto &claims = joint_claims[joint];
 
-            // iterate over all joints
-            std::for_each(joint_claims.begin(), joint_claims.end(), [&](auto &&joint_claim)
+            std::for_each(claims.begin(), claims.end(), [&](auto &&claim_id)
                           {
-                    // keep track of mapped interfaces per joint
-                    std::vector<std::string> mappend_interfaces{};
-
-                    auto& [joint, claims] = joint_claim;
-                    // for each claim of a joint, export the referenced interfaces
-                    std::for_each(claims.begin(), claims.end(), [&](auto &&claim_id)
-                    {
                         // tokenize claim to: slave, claim, type, name (convert to string from string_view for easier logging)
                         auto& [slave, claim, type, name] = tokenize_interface(claim_id);
 
@@ -167,11 +160,11 @@ namespace soem_driver
                                     if(!claim.compare(interface.get_prefix_name()))
                                     {
                                         // check if we already have an interface of this name for this joint
-                                        if(std::find(mappend_interfaces.begin(), mappend_interfaces.end(), interface.get_interface_name()) == mappend_interfaces.end())
+                                        if(std::find(joint_mappend_interfaces.begin(), joint_mappend_interfaces.end(), interface.get_interface_name()) == joint_mappend_interfaces.end())
                                         {
                                             auto alias_factory = AliasInterfaceFactory{interface};
-                                            mappend_interfaces.push_back(interface.get_interface_name());
-                                            state_interfaces.emplace_back(
+                                            joint_mappend_interfaces.push_back(interface.get_interface_name());
+                                            joint_state_interfaces.emplace_back(
                                                     alias_factory.makeInterface<hardware_interface::StateInterface>(joint, interface.get_interface_name())
                                                 );
 
@@ -189,32 +182,52 @@ namespace soem_driver
                                 RCLCPP_WARN(rclcpp::get_logger(__logger_name), "could not find slave %s to resolve claim %s", slave.c_str(), claim.c_str());
                                 return;
                             }
-                        }
-                    }); });
+                        } });
 
-            return state_interfaces;
+            return joint_state_interfaces;
         };
 
-        std::vector<hardware_interface::CommandInterface> export_command_interfaces()
+        // interfaces are built when needed (command interfaces are moveable, but not copyable)
+        std::vector<hardware_interface::StateInterface> export_state_interfaces()
         {
-            std::vector<hardware_interface::CommandInterface> command_interfaces;
+            std::vector<hardware_interface::StateInterface> state_interfaces;
 
             // TODO(bitmeal): rework using ranges with transform, filter and std::optional?
 
             // iterate over all joints
-            std::for_each(joint_claims.begin(), joint_claims.end(), [&](auto &&joint_claim)
+            std::for_each(joint_claims.begin(), joint_claims.end(), [&](auto &&single_joints_claims)
                           {
-                    // keep track of mapped interfaces per joint
-                    std::vector<std::string> mappend_interfaces{};
+                              auto joint_state_interfaces = resolve_state_interfaces_by_joint(single_joints_claims.first);
 
-                    auto& [joint, claims] = joint_claim;
-                    // for each claim of a joint, export the referenced interfaces
-                    std::for_each(claims.begin(), claims.end(), [&](auto &&claim_id)
-                    {
+                              // TODO(bitmeal): handle transmissions
+
+                              // TODO(bitmeal): unify use of std::begin, std::end, .begin, .end
+                              state_interfaces.reserve(state_interfaces.size() + joint_state_interfaces.size());
+                              std::move(std::begin(joint_state_interfaces), std::end(joint_state_interfaces), std::back_inserter(state_interfaces));
+                              // joint_command_interfaces.clear();
+                          });
+
+            return state_interfaces;
+        };
+
+        std::pair<
+            std::vector<hardware_interface::CommandInterface>,
+            std::unordered_map<std::string, std::pair<std::string, std::string>>>
+        resolve_command_interfaces_by_joint(const std::string joint)
+        {
+            std::vector<hardware_interface::CommandInterface> joint_command_interfaces{};
+            std::unordered_map<std::string, std::pair<std::string, std::string>> joint_command_interface_map{};
+            std::vector<std::string> joint_mappend_interfaces{};
+
+            auto &claims = joint_claims[joint];
+
+            // for each claim of a joint, export the referenced interfaces
+            std::for_each(claims.begin(), claims.end(), [&](auto &&claim_id)
+                          {
                         // tokenize claim to: slave, claim, type, name (convert to string from string_view for easier logging)
                         auto& [slave, claim, type, name] = tokenize_interface(claim_id);
 
-                        // shall use command interfaces, as in: whole claim (state and command) or state only
+                        // shall use command interfaces, as in: whole claim (state and command) or command only
                         if(type.empty() || !type.compare("command"))
                         {
                             // find slave
@@ -254,11 +267,11 @@ namespace soem_driver
                                     if(!claim.compare(interface.get_prefix_name()))
                                     {
                                         // check if we already have an interface of this name for this joint
-                                        if(std::find(mappend_interfaces.begin(), mappend_interfaces.end(), interface.get_interface_name()) == mappend_interfaces.end())
+                                        if(std::find(joint_mappend_interfaces.begin(), joint_mappend_interfaces.end(), interface.get_interface_name()) == joint_mappend_interfaces.end())
                                         {
                                             auto alias_factory = AliasInterfaceFactory{interface};
-                                            mappend_interfaces.push_back(interface.get_interface_name());
-                                            command_interfaces.emplace_back(
+                                            joint_mappend_interfaces.push_back(interface.get_interface_name());
+                                            joint_command_interfaces.emplace_back(
                                                         alias_factory.makeInterface<hardware_interface::CommandInterface>(joint, interface.get_interface_name())
                                                 );
 
@@ -279,8 +292,33 @@ namespace soem_driver
                                 RCLCPP_WARN(rclcpp::get_logger(__logger_name), "could not find slave %s to resolve claim %s", slave.c_str(), claim.c_str());
                                 return;
                             }
-                        }
-                    }); });
+                        } });
+
+            return std::make_pair(
+                std::move(joint_command_interfaces),
+                joint_command_interface_map);
+        };
+
+        std::vector<hardware_interface::CommandInterface> export_command_interfaces()
+        {
+            std::vector<hardware_interface::CommandInterface> command_interfaces;
+
+            // TODO(bitmeal): rework using ranges with transform, filter and std::optional?
+
+            // iterate over all joints
+            std::for_each(joint_claims.begin(), joint_claims.end(), [&](auto &&single_joints_claims)
+                          {
+                              auto [joint_command_interfaces, joint_command_interface_map] = resolve_command_interfaces_by_joint(single_joints_claims.first);
+
+                              // TODO(bitmeal): handle transmissions
+
+                              // TODO(bitmeal): unify use of std::begin, std::end, .begin, .end
+                              command_interfaces.reserve(command_interfaces.size() + joint_command_interfaces.size());
+                              std::move(std::begin(joint_command_interfaces), std::end(joint_command_interfaces), std::back_inserter(command_interfaces));
+                              // joint_command_interfaces.clear();
+
+                              command_interface_map.insert(std::begin(joint_command_interface_map), std::end(joint_command_interface_map));
+                          });
 
             return command_interfaces;
         };
@@ -295,12 +333,12 @@ namespace soem_driver
 
             std::for_each(start_interfaces.begin(), start_interfaces.end(), [&](auto &start_interface)
                           {
-                auto [slave, claim] = joint_command_interface_map[start_interface];
+                auto [slave, claim] = command_interface_map[start_interface];
                 start_claims_by_slave[slave].push_back(claim); });
 
             std::for_each(stop_interfaces.begin(), stop_interfaces.end(), [&](auto &stop_interface)
                           {
-                auto [slave, claim] = joint_command_interface_map[stop_interface];
+                auto [slave, claim] = command_interface_map[stop_interface];
                 stop_claims_by_slave[slave].push_back(claim); });
 
             std::vector<std::pair<std::string, hardware_interface::return_type>> slave_mode_switch_response;
@@ -335,20 +373,20 @@ namespace soem_driver
         };
 
         hardware_interface::return_type perform_command_mode_switch(
-            const std::vector<std::string> & start_interfaces,
-            const std::vector<std::string> & stop_interfaces)
+            const std::vector<std::string> &start_interfaces,
+            const std::vector<std::string> &stop_interfaces)
         {
             std::unordered_map<std::string, std::vector<std::string>> start_claims_by_slave;
             std::unordered_map<std::string, std::vector<std::string>> stop_claims_by_slave;
 
             std::for_each(start_interfaces.begin(), start_interfaces.end(), [&](auto &start_interface)
                           {
-                auto [slave, claim] = joint_command_interface_map[start_interface];
+                auto [slave, claim] = command_interface_map[start_interface];
                 start_claims_by_slave[slave].push_back(claim); });
 
             std::for_each(stop_interfaces.begin(), stop_interfaces.end(), [&](auto &stop_interface)
                           {
-                auto [slave, claim] = joint_command_interface_map[stop_interface];
+                auto [slave, claim] = command_interface_map[stop_interface];
                 stop_claims_by_slave[slave].push_back(claim); });
 
             std::vector<std::pair<std::string, hardware_interface::return_type>> slave_mode_switch_response;

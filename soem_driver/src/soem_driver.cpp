@@ -355,6 +355,45 @@ namespace soem_driver
             }
         }
 
+        // TODO(bitmeal): allow generic transmissions in future
+        // load transmissions
+        // for now only:
+        //  - SimpleTransmission (lazy specialization)
+        //  - transmissions targeting one joint only in general
+        for (auto &&transmission_info : info.transmissions)
+        {
+            if (
+                transmission_info.type != "transmission_interface/SimpleTransmission" || transmission_info.joints.size() != 1)
+            {
+
+                RCLCPP_ERROR(rclcpp::get_logger(__logger_name), "Ignoring unsupported transmission %s of type %s, targeting %ld joints!", transmission_info.name.c_str(), transmission_info.type.c_str(), transmission_info.joints.size());
+                continue;
+            }
+
+            try
+            {
+                RCLCPP_INFO(rclcpp::get_logger(__logger_name), "loading TransmissionLoader for transmission %s of type %s", transmission_info.name.c_str(), transmission_info.type.c_str());
+
+                // auto transmission_loader = transmission_loader_loader_.createSharedInstance(transmission_info.type);
+                auto transmission_loader = transmission_loader_loader_.createUniqueInstance(transmission_info.type);
+
+                RCLCPP_INFO(rclcpp::get_logger(__logger_name), "loading Transmission for transmission %s of type %s", transmission_info.name.c_str(), transmission_info.type.c_str());
+                auto transmission = std::make_pair(
+                    transmission_loader->load(transmission_info),
+                    transmission_loader->load(transmission_info)
+                );
+                RCLCPP_INFO(rclcpp::get_logger(__logger_name), "successfully loaded transmission %s of type %s for joint %s (loading twice for state/command)", transmission_info.name.c_str(), transmission_info.type.c_str(), transmission_info.joints[0].name.c_str());
+
+                // add transmission to map from joint names to transmissions
+                transmissions[transmission_info.joints[0].name] = transmission;
+            }
+            catch (const std::exception &e)
+            {
+                // we don't throw, but load remaining plugins. slaves may have uninitialized plugins as result
+                RCLCPP_ERROR(rclcpp::get_logger(__logger_name), "Failed to load Transmission or TransmissionLoader for transmission %s of type %s; threw: %s", transmission_info.name.c_str(), transmission_info.type.c_str(), e.what());
+            }
+        }
+
         // ECClaimsResolver claims_resolver{info, slaves, joint_claims};
         claims_resolver.__logger_name = __logger_name;
         claims_resolver.init(slaves, joint_claims);

@@ -10,6 +10,7 @@
 #include "hardware_interface/system_interface.hpp"
 #include <pluginlib/class_loader.hpp>
 
+#include <transmission_interface/transmission_loader.hpp>
 
 #include "soem_driver_common/soem_driver_common.hpp"
 #include "soem_driver_slave_interface/soem_driver_slave.hpp"
@@ -33,7 +34,6 @@ namespace soem_driver
             // std::vector<std::string> claims;
         } EcSlavePluginInfo;
 
-
         SOEMDriver();
         ~SOEMDriver();
 
@@ -52,8 +52,8 @@ namespace soem_driver
         hardware_interface::return_type read(const rclcpp::Time &, const rclcpp::Duration &) override;
         hardware_interface::return_type write(const rclcpp::Time &, const rclcpp::Duration &) override;
 
-        hardware_interface::return_type prepare_command_mode_switch(const std::vector<std::string> & start_interfaces, const std::vector<std::string> & stop_interfaces) override;
-        hardware_interface::return_type perform_command_mode_switch(const std::vector<std::string> & start_interfaces, const std::vector<std::string> & stop_interfaces) override;
+        hardware_interface::return_type prepare_command_mode_switch(const std::vector<std::string> &start_interfaces, const std::vector<std::string> &stop_interfaces) override;
+        hardware_interface::return_type perform_command_mode_switch(const std::vector<std::string> &start_interfaces, const std::vector<std::string> &stop_interfaces) override;
 
         CallbackReturn on_deactivate(const rclcpp_lifecycle::State &previous_state) override;
 
@@ -74,9 +74,20 @@ namespace soem_driver
         // map from: <joint> --> [<claim>]
         std::unordered_map<std::string, std::vector<std::string>> joint_claims;
         std::vector<std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave>> initialized_slaves;
-        
+
         ECClaimsResolver claims_resolver;
 
+        pluginlib::ClassLoader<transmission_interface::TransmissionLoader>
+            transmission_loader_loader_{
+                "transmission_interface", "transmission_interface::TransmissionLoader"};
+
+        // map from: <slave name> --> {<state transmission instance>, <command transmission instance>}
+        std::unordered_map<std::string, std::pair<
+                                            std::shared_ptr<transmission_interface::Transmission>,
+                                            std::shared_ptr<transmission_interface::Transmission>>>
+            transmissions;
+
+        // EtherCAT master configuration
         std::string ec_interface;
         std::chrono::microseconds ec_cycle_us;
         soem_master::SOEMMaster master;

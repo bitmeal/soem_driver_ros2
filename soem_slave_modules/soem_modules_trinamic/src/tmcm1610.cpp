@@ -215,7 +215,7 @@ namespace soem_slave_modules
         bool configure(
             uint64_t vendor_id,
             uint64_t product_code,
-            uint64_t /* revision_number */,
+            uint64_t revision_number,
             std::unordered_map<std::string, std::string> parameters) override
         {
             // TODO(bitmeal): error handling for type conversions
@@ -256,7 +256,7 @@ namespace soem_slave_modules
             torque_constant = std::stod(parameters["torque_constant"]);
             gear_ratio = std::stod(parameters["gear_ratio"]);
 
-            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Configuration OK! Vendor ID(0x%016lx), Product Code(0x%016lx)", this->vendor_id, this->product_code);
+            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Configuration OK! Vendor ID(0x%016lx), Product Code(0x%016lx), Product Revision(0x%016lx)", this->vendor_id, this->product_code, revision_number);
             RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Torque constant: %f [Nm/A]", torque_constant);
             RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Gear ratio: %f/1", gear_ratio);
             if (has_gripper)
