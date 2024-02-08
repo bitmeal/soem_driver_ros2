@@ -112,9 +112,10 @@ checkout_submodules()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 
-ament_export_include_directories(
-  include
-)
+# # provide local includes
+# ament_export_include_directories(
+#   include
+# )
 
 add_library(
   ${PROJECT_NAME}
@@ -147,6 +148,10 @@ install(
 #   set(ament_cmake_cpplint_FOUND TRUE)
 #   ament_lint_auto_find_test_dependencies()
 # endif()
+
+# provide supplemental packages
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/supplemental)
+
 
 ## EXPORTS
 ament_export_include_directories(

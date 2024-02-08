@@ -5,6 +5,7 @@
 #include "soem_modules_trinamic/tmcl.hpp"
 
 #include "yaml-cpp/yaml.h"
+#include "hfsm2/machine.hpp"
 
 #include "rclcpp/rclcpp.hpp"
 
