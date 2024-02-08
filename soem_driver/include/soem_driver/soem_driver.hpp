@@ -86,6 +86,8 @@ namespace soem_driver
                                             std::shared_ptr<transmission_interface::Transmission>,
                                             std::shared_ptr<transmission_interface::Transmission>>>
             transmissions;
+        std::vector<double> transmission_state_values;
+        std::vector<double> transmission_command_values;
 
         // EtherCAT master configuration
         std::string ec_interface;

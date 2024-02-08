@@ -57,10 +57,27 @@ ament_target_dependencies(
 )
 
 
+## driver
+# helpers
+add_library(claims_resolver src/claims_resolver.cpp)
+
+set_property(TARGET claims_resolver PROPERTY CXX_STANDARD 20)
+set_property(TARGET claims_resolver PROPERTY POSITION_INDEPENDENT_CODE TRUE)
+
+target_include_directories(claims_resolver PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+ament_target_dependencies(claims_resolver
+  hardware_interface
+  rclcpp
+  soem_driver_slave_interface
+  soem_driver_common
+)
+
 # driver
-add_library(
-  ${PROJECT_NAME}
-  SHARED
+add_library(${PROJECT_NAME} SHARED
   src/soem_driver.cpp
 )
 
@@ -72,12 +89,11 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 )
 
 target_link_libraries(${PROJECT_NAME}
-  # soem
+  claims_resolver
   soem_master
 )
 
-ament_target_dependencies(
-  ${PROJECT_NAME}
+ament_target_dependencies(${PROJECT_NAME}
   hardware_interface
   pluginlib
   yaml_cpp_vendor

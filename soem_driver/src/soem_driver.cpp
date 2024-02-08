@@ -1,4 +1,5 @@
 #include "soem_driver/soem_driver.hpp"
+#include "soem_driver/alias_interface_factory.hpp"
 
 #include "rclcpp/rclcpp.hpp"
 #include "yaml-cpp/yaml.h"
@@ -380,8 +381,7 @@ namespace soem_driver
                 RCLCPP_INFO(rclcpp::get_logger(__logger_name), "loading Transmission for transmission %s of type %s", transmission_info.name.c_str(), transmission_info.type.c_str());
                 auto transmission = std::make_pair(
                     transmission_loader->load(transmission_info),
-                    transmission_loader->load(transmission_info)
-                );
+                    transmission_loader->load(transmission_info));
                 RCLCPP_INFO(rclcpp::get_logger(__logger_name), "successfully loaded transmission %s of type %s for joint %s (loading twice for state/command)", transmission_info.name.c_str(), transmission_info.type.c_str(), transmission_info.joints[0].name.c_str());
 
                 // add transmission to map from joint names to transmissions
@@ -496,13 +496,199 @@ namespace soem_driver
 
     std::vector<hardware_interface::StateInterface> SOEMDriver::export_state_interfaces()
     {
-        return claims_resolver.export_state_interfaces();
+        std::vector<hardware_interface::StateInterface> state_interfaces;
+        auto state_interfaces_by_joint = claims_resolver.export_state_interfaces_by_joint();
+
+        size_t transmission_values_count = std::accumulate(state_interfaces_by_joint.begin(), state_interfaces_by_joint.end(), 0,
+                                                           [&](size_t acc, auto &&single_joints_state_interfaces)
+                                                           {
+                                                               auto &[name, interfaces] = single_joints_state_interfaces;
+                                                               return acc + (transmissions.find(name) != transmissions.end() ? interfaces.size() : 0);
+                                                           });
+        RCLCPP_INFO(rclcpp::get_logger(__logger_name), "reserving %zu state interface transmission variables", transmission_values_count);
+        transmission_state_values.reserve(transmission_values_count);
+
+        std::for_each(state_interfaces_by_joint.begin(), state_interfaces_by_joint.end(), [&](auto &&single_joints_state_interfaces)
+                      {
+                            auto& [name, interfaces] = single_joints_state_interfaces;
+                            state_interfaces.reserve(state_interfaces.size() + interfaces.size());
+
+                            // inject state transmissions
+                            if(transmissions.find(name) != transmissions.end())
+                            {
+                                RCLCPP_INFO(rclcpp::get_logger(__logger_name), "configuring state interface transmission for joint %s", name.c_str());
+
+                                auto& state_transmission = transmissions[name].first;
+
+                                // build new joint interfaces
+                                // "proxy"-joint interfaces to the slaves interfaces are actuator interfaces
+                                std::vector<hardware_interface::StateInterface> transmission_state_interfaces{};
+
+                                std::transform(interfaces.begin(), interfaces.end(),
+                                    std::back_inserter(transmission_state_interfaces),
+                                    [&](auto& interface)
+                                    {                                
+                                        transmission_state_values.push_back({});
+                                     
+                                        return std::move(hardware_interface::StateInterface(
+                                            interface.get_prefix_name(),
+                                            interface.get_interface_name(),
+                                            &transmission_state_values.back()
+                                        ));
+                                    }
+                                    );
+
+                                {
+                                    std::vector<transmission_interface::JointHandle> state_transmission_joint_handles;
+                                    std::transform(transmission_state_interfaces.begin(), transmission_state_interfaces.end(),
+                                        std::back_inserter(state_transmission_joint_handles),
+                                        [&](auto&& interface)
+                                        {
+                                            auto alias_factory = AliasInterfaceFactory{interface};
+                                            return std::move(alias_factory.makeInterface<transmission_interface::JointHandle>(interface.get_prefix_name(), interface.get_interface_name()));
+                                        });
+
+                                    std::vector<transmission_interface::ActuatorHandle> state_transmission_actuator_handles;
+                                    std::transform(interfaces.begin(), interfaces.end(),
+                                        std::back_inserter(state_transmission_actuator_handles),
+                                        [&](auto&& interface)
+                                        {
+                                            auto alias_factory = AliasInterfaceFactory{interface};
+                                            return std::move(alias_factory.makeInterface<transmission_interface::ActuatorHandle>(interface.get_prefix_name(), interface.get_interface_name()));
+                                        });
+
+                                    state_transmission->configure(
+                                        state_transmission_joint_handles,
+                                        state_transmission_actuator_handles
+                                    );
+                                }
+
+                                // add newly built interfaces to exports
+                                std::move(std::begin(transmission_state_interfaces), std::end(transmission_state_interfaces), std::back_inserter(state_interfaces));
+                            }
+                            else
+                            {
+                                // add interfaces to exports
+                                std::move(std::begin(interfaces), std::end(interfaces), std::back_inserter(state_interfaces));
+                            } });
+
+        return state_interfaces;
     };
 
     std::vector<hardware_interface::CommandInterface> SOEMDriver::export_command_interfaces()
     {
-        return claims_resolver.export_command_interfaces();
+        std::vector<hardware_interface::CommandInterface> command_interfaces;
+        auto command_interfaces_by_joint = claims_resolver.export_command_interfaces_by_joint();
+
+        size_t transmission_values_count = std::accumulate(command_interfaces_by_joint.begin(), command_interfaces_by_joint.end(), 0,
+                                                           [&](size_t acc, auto &&single_joints_command_interfaces)
+                                                           {
+                                                               auto &[name, interfaces] = single_joints_command_interfaces;
+                                                               return acc + (transmissions.find(name) != transmissions.end() ? interfaces.size() : 0);
+                                                           });
+        RCLCPP_INFO(rclcpp::get_logger(__logger_name), "reserving %zu command interface transmission variables", transmission_values_count);
+        transmission_command_values.reserve(transmission_values_count);
+
+        std::for_each(command_interfaces_by_joint.begin(), command_interfaces_by_joint.end(), [&](auto &&single_joints_command_interfaces)
+                      {
+                            auto& [name, interfaces] = single_joints_command_interfaces;
+                            command_interfaces.reserve(command_interfaces.size() + interfaces.size());
+
+                            // inject state transmissions
+                            if(transmissions.find(name) != transmissions.end())
+                            {
+                                RCLCPP_INFO(rclcpp::get_logger(__logger_name), "configuring command interface transmission for joint %s", name.c_str());
+
+                                auto& command_transmission = transmissions[name].second;
+
+                                // build new joint interfaces
+                                // "proxy"-joint interfaces to the slaves interfaces are actuator interfaces
+                                std::vector<hardware_interface::CommandInterface> transmission_command_interfaces{};
+
+                                std::transform(interfaces.begin(), interfaces.end(),
+                                    std::back_inserter(transmission_command_interfaces),
+                                    [&](auto& interface)
+                                    {                                
+                                        transmission_command_values.push_back({});
+                                     
+                                        return std::move(hardware_interface::CommandInterface(
+                                            interface.get_prefix_name(),
+                                            interface.get_interface_name(),
+                                            &transmission_command_values.back()
+                                        ));
+                                    }
+                                    );
+
+                                {
+                                    std::vector<transmission_interface::JointHandle> command_transmission_joint_handles;
+                                    std::transform(transmission_command_interfaces.begin(), transmission_command_interfaces.end(),
+                                        std::back_inserter(command_transmission_joint_handles),
+                                        [&](auto&& interface)
+                                        {
+                                            auto alias_factory = AliasInterfaceFactory{interface};
+                                            return std::move(alias_factory.makeInterface<transmission_interface::JointHandle>(interface.get_prefix_name(), interface.get_interface_name()));
+                                        });
+
+                                    std::vector<transmission_interface::ActuatorHandle> command_transmission_actuator_handles;
+                                    std::transform(interfaces.begin(), interfaces.end(),
+                                        std::back_inserter(command_transmission_actuator_handles),
+                                        [&](auto&& interface)
+                                        {
+                                            auto alias_factory = AliasInterfaceFactory{interface};
+                                            return std::move(alias_factory.makeInterface<transmission_interface::ActuatorHandle>(interface.get_prefix_name(), interface.get_interface_name()));
+                                        });
+
+                                    command_transmission->configure(
+                                        command_transmission_joint_handles,
+                                        command_transmission_actuator_handles
+                                    );
+                                }
+
+                                // add newly built interfaces to exports
+                                std::move(std::begin(transmission_command_interfaces), std::end(transmission_command_interfaces), std::back_inserter(command_interfaces));
+                            }
+                            else
+                            {
+                                // add interfaces to exports
+                                std::move(std::begin(interfaces), std::end(interfaces), std::back_inserter(command_interfaces));
+                            } });
+
+        return command_interfaces;
     };
+
+    // std::vector<hardware_interface::StateInterface> SOEMDriver::export_state_interfaces()
+    // {
+    //     // return claims_resolver.export_state_interfaces();
+
+    //     std::vector<hardware_interface::StateInterface> state_interfaces;
+    //     auto state_interfaces_by_joint = claims_resolver.export_state_interfaces_by_joint();
+
+    //     std::for_each(state_interfaces_by_joint.begin(), state_interfaces_by_joint.end(), [&](auto&& single_joints_state_interfaces_it)
+    //                   {
+    //                       auto interfaces = state_interfaces_by_joint.extract(single_joints_state_interfaces_it.first);
+    //                       state_interfaces.reserve(state_interfaces.size() + interfaces.mapped().size());
+    //                       std::move(std::begin(interfaces.mapped()), std::end(interfaces.mapped()), std::back_inserter(state_interfaces));
+    //                   });
+
+    //     return state_interfaces;
+    // };
+
+    // std::vector<hardware_interface::CommandInterface> SOEMDriver::export_command_interfaces()
+    // {
+    //     // return claims_resolver.export_command_interfaces();
+
+    //     std::vector<hardware_interface::CommandInterface> command_interfaces;
+    //     auto command_interfaces_by_joint = claims_resolver.export_command_interfaces_by_joint();
+
+    //     std::for_each(command_interfaces_by_joint.begin(), command_interfaces_by_joint.end(), [&](auto&& single_joints_command_interfaces_it)
+    //                   {
+    //                       auto interfaces = command_interfaces_by_joint.extract(single_joints_command_interfaces_it.first);
+    //                       command_interfaces.reserve(command_interfaces.size() + interfaces.mapped().size());
+    //                       std::move(std::begin(interfaces.mapped()), std::end(interfaces.mapped()), std::back_inserter(command_interfaces));
+    //                   });
+
+    //     return command_interfaces;
+    // };
 
     CallbackReturn SOEMDriver::on_activate(const rclcpp_lifecycle::State & /* previous_state */)
     {
@@ -533,11 +719,17 @@ namespace soem_driver
             slave_ptr->read(time, duration);
         }
 
+        std::for_each(transmissions.begin(), transmissions.end(), [&](auto &&joints_transmissions)
+                      { joints_transmissions.second.first->actuator_to_joint(); });
+
         return hardware_interface::return_type::OK;
     };
 
     hardware_interface::return_type SOEMDriver::write(const rclcpp::Time &time, const rclcpp::Duration &duration)
     {
+        std::for_each(transmissions.begin(), transmissions.end(), [&](auto &&joints_transmissions)
+                      { joints_transmissions.second.second->joint_to_actuator(); });
+
         // make slaves write new process data and requeset mailbox sends
         for (auto slave_ptr : initialized_slaves)
         {
