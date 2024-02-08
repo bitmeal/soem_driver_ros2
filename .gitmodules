@@ -4,3 +4,6 @@
 [submodule "cap-grant-ld"]
 	path = soem_ethercat_grant/cap-grant-ld/cap-grant-ld
 	url = https://github.com/bitmeal/cap-grant-ld
+[submodule "soem_driver_common/supplemental/hfsm2/hfsm2"]
+	path = soem_driver_common/supplemental/hfsm2/hfsm2
+	url = https://github.com/andrew-gresyk/HFSM2
