@@ -5,6 +5,7 @@
 #include "soem_modules_trinamic/tmcl.hpp"
 
 #include "yaml-cpp/yaml.h"
+
 #include "hfsm2/machine.hpp"
 
 #include "rclcpp/rclcpp.hpp"
@@ -159,7 +160,7 @@ namespace soem_slave_modules
             if (command_mode == EFFORT)
                 return "joint/effort";
 
-            return "";
+            return "<none>";
         };
 
         // TODO(bitmeal): handle gripper

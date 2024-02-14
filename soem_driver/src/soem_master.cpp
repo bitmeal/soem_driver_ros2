@@ -67,6 +67,13 @@ namespace soem_master
           __logger_name("soem_master"),
           slaves(_slaves),
           slaves_data_access(_slaves_data_access),
+          status({.error_count = 0,
+                  .rx_error_count = 0,
+                  .tx_error_count = 0,
+                  .rx_error_count_consecutive = 0,
+                  .tx_error_count_consecutive = 0,
+                  .other_ec_error_count_consecutive = 0,
+                  .state = SOEMMaster::SOEMMasterState::UNINITIALIZED}),
           IOmap({}),
           RxPDO_working({}),
           RxPDO_transfer(false),
@@ -113,17 +120,8 @@ namespace soem_master
     };
     SOEMMaster::~SOEMMaster()
     {
-        // stop and join thread
-        stop();
+        deinit();
 
-        if(is_init)
-        {
-            bus_down_SAFE_OP();
-
-            ecx_close(&ecx_context);
-            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "closed EtherCAT communication");
-        }
-        
         // unregister for resolution from context pointer
         SOEMCtxMasterMapping.erase(&ecx_context);
         RCLCPP_INFO(rclcpp::get_logger(__logger_name), "unregistered SOEM master instance: %ld left", SOEMCtxMasterMapping.size());
@@ -173,12 +171,42 @@ namespace soem_master
             throw std::runtime_error("could not initialize EtherCAT communication on interface " + interface);
         }
 
+        if (!cyclic_master_running.load())
+        {
+            // guard against races; may lead to incorrectly reported state
+            status.state = SOEMMasterState::INITIALIZED;
+            status_queue.push(status);
+        }
+
         is_init = true;
+    };
+
+    void SOEMMaster::deinit()
+    {
+        // stop and join thread
+        stop();
+
+        if (is_init)
+        {
+            bus_down_SAFE_OP();
+            ecx_close(&ecx_context);
+            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "closed EtherCAT communication");
+        }
+        
+        status.state = SOEMMasterState::UNINITIALIZED;
     };
 
     // get all devices to SAFE_OP state, calling attached SDO setup hooks on transition from PO to SO
     void SOEMMaster::start_bus(size_t IOmap_size)
     {
+
+        if (!cyclic_master_running.load())
+        {
+            // guard against races; may lead to incorrectly reported state
+            status.state = SOEMMasterState::STARTING;
+            status_queue.push(status);
+        }
+
         // setup IOmap
         // slave input and output sizes are only available after mapping and PO2SO hooks!
         // size_t IOmap_size = std::accumulate(_slaves.begin(), _slaves.end(), 0,
@@ -219,7 +247,13 @@ namespace soem_master
         ecx_readstate(&ecx_context);
         if (ec_slave[0].state != EC_STATE_SAFE_OP)
         {
-            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "NOT all slaves reached SAFE OP");
+            if (!cyclic_master_running.load())
+            {
+                // guard against races; may lead to incorrectly reported state
+                status.state = SOEMMasterState::ERROR;
+                status_queue.push(status);
+            }
+            RCLCPP_ERROR(rclcpp::get_logger(__logger_name), "NOT all slaves reached SAFE OP");
             ec_log_slaves();
             throw std::runtime_error("NOT all slaves reached SAFE OP");
         }
@@ -252,9 +286,22 @@ namespace soem_master
 
         if (ec_slave[0].state != EC_STATE_OPERATIONAL)
         {
-            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "NOT all slaves reached OP");
+            if (!cyclic_master_running.load())
+            {
+                // guard against races; may lead to incorrectly reported state
+                status.state = SOEMMasterState::ERROR;
+                status_queue.push(status);
+            }
+            RCLCPP_ERROR(rclcpp::get_logger(__logger_name), "NOT all slaves reached OP");
             ec_log_slaves();
             throw std::runtime_error("NOT all slaves reached OP");
+        }
+
+        if (!cyclic_master_running.load())
+        {
+            // guard against races; may lead to incorrectly reported state
+            status.state = SOEMMasterState::IDLE;
+            status_queue.push(status);
         }
     };
 
@@ -264,6 +311,13 @@ namespace soem_master
         RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Requesting SAFE_OP for all slaves");
         ec_slave[0].state = EC_STATE_SAFE_OP;
         ecx_writestate(&ecx_context, 0);
+
+        if (!cyclic_master_running.load())
+        {
+            // guard against races; may lead to incorrectly reported state
+            status.state = SOEMMasterState::INITIALIZED;
+            status_queue.push(status);
+        }
     };
 
     void SOEMMaster::cyclic_task(std::chrono::microseconds cycle_time_us)
@@ -273,9 +327,20 @@ namespace soem_master
         cyclic_master_running.store(true);
         auto time_next_loop = std::chrono::high_resolution_clock::now();
 
+        SOEMMasterState state_flag = SOEMMasterState::RUNNING;
+        status.state = SOEMMasterState::RUNNING;
+        status.rx_error_count_consecutive = 0;
+        status.tx_error_count_consecutive = 0;
+        status.other_ec_error_count_consecutive = 0;
+
+        const std::string task_logger_name = __logger_name + "_cyclic_task";
+
         while (!cyclic_master_terminate.load())
         {
             cycle_counter++; // int should be atomic
+
+            // local state variable; commit to master status on end of cycle
+            state_flag = SOEMMasterState::RUNNING;
 
             // get new output process data on request
             if (RxPDO_transfer.load())
@@ -288,13 +353,52 @@ namespace soem_master
             // read/write process data
             if (!ecx_send_overlap_processdata_group(&ecx_context, 0))
             {
-                // TODO(bitmeal): issue warning
+                if (status.tx_error_count_consecutive == 0)
+                {
+                    // no particularly good idea to log from realtime thread, but this is not the happy path anyways
+                    // RCLCPP_WARN(rclcpp::get_logger(task_logger_name), "Sending process data failed!");
+                }
+
+                status.tx_error_count_consecutive++;
+                status.tx_error_count++;
+                status.error_count++;
+
+                state_flag = SOEMMasterState::ERROR;
+            }
+            else
+            {
+                if (status.tx_error_count_consecutive != 0)
+                {
+                    // no particularly good idea to log from realtime thread, but this is not the happy path anyways
+                    // RCLCPP_INFO(rclcpp::get_logger(task_logger_name), "Resumed sending process data from failure state!");
+                }
+
+                status.tx_error_count_consecutive = 0;
             }
 
             if (!ecx_receive_processdata(&ecx_context, timeout_process_data.count()))
             {
-                // TODO(bitmeal): issue warning
-                // TODO(bitmeal): track error count and exit if too many
+                if (status.rx_error_count_consecutive == 0)
+                {
+                    // no particularly good idea to log from realtime thread, but this is not the happy path anyways
+                    // RCLCPP_WARN(rclcpp::get_logger(task_logger_name), "Receiving process data failed!");
+                }
+
+                status.rx_error_count_consecutive++;
+                status.rx_error_count++;
+                status.error_count++;
+
+                state_flag = SOEMMasterState::ERROR;
+            }
+            else
+            {
+                if (status.rx_error_count_consecutive != 0)
+                {
+                    // no particularly good idea to log from realtime thread, but this is not the happy path anyways
+                    // RCLCPP_INFO(rclcpp::get_logger(task_logger_name), "Resumed receiving process data from failure state!");
+                }
+
+                status.rx_error_count_consecutive = 0;
             }
 
             // make input data available on request
@@ -343,9 +447,44 @@ namespace soem_master
             // check for EtherCAT errors in SOEM
             if (ecx_iserror(&ecx_context))
             {
-                // TODO(bitmeal): issue warning
-                // TODO(bitmeal): possibly track error count and exit if too many
+                // count errors and clear list
+                size_t count = 0;
+                ec_errort _;
+                while (ecx_poperror(&ecx_context, &_))
+                {
+                    // TODO(bitmeal): how to handle informative logging
+                    count++;
+                };
+
+                if (status.other_ec_error_count_consecutive == 0)
+                {
+                    // TODO(bitmeal): how to handle informative logging
+
+                    // no particularly good idea to log from realtime thread, but this is not the happy path anyways
+                    // RCLCPP_WARN(rclcpp::get_logger(task_logger_name), "EtherCAT bus reported errors");
+                }
+
+                status.other_ec_error_count_consecutive += count;
+                status.error_count += count;
+
+                state_flag = SOEMMasterState::ERROR;
             }
+            else
+            {
+                if (status.other_ec_error_count_consecutive != 0)
+                {
+                    // no particularly good idea to log from realtime thread, but this is not the happy path anyways
+                    // RCLCPP_INFO(rclcpp::get_logger(task_logger_name), "Resumed to a state where the bus reports no errors!");
+                }
+
+                status.other_ec_error_count_consecutive = 0;
+            }
+
+            // commit state
+            status.state = state_flag;
+
+            // push state to queue if space available
+            status_queue.push(status);
 
             // sleep until next cycle
             time_next_loop += cycle_time_us;
@@ -359,6 +498,8 @@ namespace soem_master
         }
 
         cyclic_master_running.store(false);
+        status.state = SOEMMasterState::IDLE;
+        status_queue.push(status);
     };
 
     // run cyclic master realtime task with cycle time
@@ -407,6 +548,11 @@ namespace soem_master
 
         cyclic_master_running.store(false);
         cyclic_master_terminate.store(false);
+
+        if (is_init)
+        {
+            bus_down_SAFE_OP();
+        }
     };
 
     void SOEMMaster::slave_attach_SDO_setup_hook(const SOEMEcSlaveInfo &slave, std::function<void(soem_driver::SDOwrite_t)> hook_fn)

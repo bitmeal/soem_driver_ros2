@@ -5,12 +5,19 @@
 #include <memory>
 #include <vector>
 #include <map>
+#include <thread>
+#include <chrono>
+#include <atomic>
 
 #include <tinyxml2.h>
-#include "hardware_interface/system_interface.hpp"
-#include <pluginlib/class_loader.hpp>
 
-#include <transmission_interface/transmission_loader.hpp>
+#include "rclcpp/rclcpp.hpp"
+#include "pluginlib/class_loader.hpp"
+
+#include "hardware_interface/system_interface.hpp"
+#include "transmission_interface/transmission_loader.hpp"
+#include "diagnostic_msgs/msg/diagnostic_array.hpp"
+
 
 #include "soem_driver_common/soem_driver_common.hpp"
 #include "soem_driver_slave_interface/soem_driver_slave.hpp"
@@ -56,8 +63,15 @@ namespace soem_driver
         hardware_interface::return_type perform_command_mode_switch(const std::vector<std::string> &start_interfaces, const std::vector<std::string> &stop_interfaces) override;
 
         CallbackReturn on_deactivate(const rclcpp_lifecycle::State &previous_state) override;
+        CallbackReturn on_cleanup(const rclcpp_lifecycle::State &previous_state) override;
+        CallbackReturn on_shutdown(const rclcpp_lifecycle::State &previous_state) override;
 
     private:
+        // bool is_init;
+        // bool is_configured;
+        // bool is_active;
+
+        std::string instance_name;
         std::string __logger_name;
 
         // member order for correct destruction, of all memers holding shared pointers to loaded libraries:
@@ -94,7 +108,42 @@ namespace soem_driver
         std::chrono::microseconds ec_cycle_us;
         soem_master::SOEMMaster master;
 
-        // URDF hardware info parsind
+        // diagnostics publisher
+        class SOEMDiagnosticsPublisher : public rclcpp::Node
+        {
+        private:
+            soem_master::SOEMMaster &master;
+            const std::unordered_map<std::string, std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave>> &slaves;
+
+            rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr pub;
+            rclcpp::TimerBase::SharedPtr timer;
+
+        public:
+            SOEMDiagnosticsPublisher(
+                const std::string name,
+                const rclcpp::NodeOptions &options,
+                soem_master::SOEMMaster &master,
+                const std::unordered_map<std::string, std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave>> &slaves,
+                const std::chrono::milliseconds cycle_time_ms);
+
+            ~SOEMDiagnosticsPublisher();
+
+            // void task();
+        };
+
+        std::shared_ptr<rclcpp::executors::SingleThreadedExecutor> driver_ros_node_executor;
+        std::shared_ptr<SOEMDiagnosticsPublisher> driver_ros_node;
+        std::thread driver_ros_node_executor_thread;
+        std::chrono::milliseconds diagnostics_cycle_ms;
+        // std::thread diagnostics_publisher;
+        // std::atomic_bool diagnostics_publisher_terminate;
+        // std::atomic_bool diagnostics_publisher_running;
+
+        // void diagnostics_publisher_task(std::chrono::milliseconds cycle_time_ms);
+        void run_diagnostics_publisher(std::chrono::milliseconds cycle_time_ms);
+        void stop_diagnostics_publisher();
+
+        // URDF hardware info parsing
         std::string _get_text_for_element(
             const tinyxml2::XMLElement *element_it, const std::string &tag_name);
         std::string _get_attribute_value(

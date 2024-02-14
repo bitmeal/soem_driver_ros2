@@ -15,6 +15,7 @@
   <depend>rclcpp</depend>
   <depend>pluginlib</depend>
   <depend>soem_driver_slave_interface</depend>
+  <depend>soem_driver_common</depend>
 
   <export>
     <build_type>ament_cmake</build_type>

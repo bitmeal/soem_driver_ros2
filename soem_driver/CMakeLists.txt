@@ -17,7 +17,7 @@ find_package(rclcpp_lifecycle REQUIRED)
 find_package(soem_driver_common REQUIRED)
 find_package(soem_driver_slave_interface REQUIRED)
 find_package(Threads REQUIRED)
-# find_package(Boost REQUIRED)
+find_package(Boost REQUIRED)
 
 # expects soem headers to be found as "soem/*.h"
 find_package(soem QUIET)
@@ -47,11 +47,10 @@ target_include_directories(soem_master PUBLIC
 target_link_libraries(soem_master
   soem
   Threads::Threads
-  # Boost::boost
+  Boost::boost
 )
 
-ament_target_dependencies(
-  soem_master
+ament_target_dependencies(soem_master
   rclcpp
   soem_driver_common
 )

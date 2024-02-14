@@ -11,6 +11,8 @@
 
   <depend>rclcpp</depend>
   <depend>hardware_interface</depend>
+  <depend>diagnostic_updater</depend>
+  <depend>boost</depend>
   <depend>soem_driver_common</depend>
 
   <export>

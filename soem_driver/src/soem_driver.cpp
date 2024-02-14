@@ -1,7 +1,9 @@
 #include "soem_driver/soem_driver.hpp"
 #include "soem_driver/alias_interface_factory.hpp"
 
-#include "rclcpp/rclcpp.hpp"
+// #include "rclcpp/rclcpp.hpp"
+#include "diagnostic_updater/diagnostic_status_wrapper.hpp"
+
 #include "yaml-cpp/yaml.h"
 
 #include <numeric>
@@ -9,9 +11,24 @@
 namespace soem_driver
 {
 
-    SOEMDriver::SOEMDriver() : hardware_interface::SystemInterface(){};
+    SOEMDriver::SOEMDriver() : // <guard linebreak>
+                               //    diagnostics_publisher_terminate({false}),
+                               //    diagnostics_publisher_running({false}),
+                               //    diagnostics_publisher({}),
+                               hardware_interface::SystemInterface(),
+                            //    is_init({false}),
+                            //    is_configured({false}),
+                            //    is_active({false}),
+                               instance_name({"generic"}),
+                               driver_ros_node_executor_thread({}){};
 
-    SOEMDriver::~SOEMDriver(){};
+    SOEMDriver::~SOEMDriver()
+    {
+        // cleanup if not traversing lifecycle correctly
+        stop_diagnostics_publisher();
+
+        // SOEM master will cleanup itself
+    };
 
     // URDF parsing based on / taken from: https://github.com/ros-controls/ros2_control/blob/master/hardware_interface/src/component_parser.cpp
 
@@ -230,6 +247,17 @@ namespace soem_driver
         // get pointer to the matching hardware definition in URDF document
         const tinyxml2::XMLElement *hardware_it = _parse_hardware_from_doc(doc, info.name);
 
+        // get diagnostics publisher loop cycle time configuration
+        const auto *diagnostics_cycle_ms_it = hardware_it->FirstChildElement("diagnostics_cycle_ms");
+        int ros_diagnostics_cycle_ms = 100;
+        if (diagnostics_cycle_ms_it)
+        {
+            ros_diagnostics_cycle_ms = std::stoi(_get_text_for_element(diagnostics_cycle_ms_it, "diagnostics_cycle_ms"));
+        }
+        diagnostics_cycle_ms = std::chrono::milliseconds{ros_diagnostics_cycle_ms};
+        RCLCPP_INFO(rclcpp::get_logger(__logger_name),
+                    "configuring ROS diagnostics publisher cycle: %dms", ros_diagnostics_cycle_ms);
+
         // get interface configuration
         const auto *ec_interface_it = hardware_it->FirstChildElement("ec_interface");
         if (!ec_interface_it)
@@ -279,7 +307,6 @@ namespace soem_driver
         }
 
         // get slave info/config
-        // const auto slaves = _parse_slaves_from_hardware(hardware_it);
         slave_infos = _parse_slaves_from_hardware(hardware_it);
 
         // parse claims from joint configuration
@@ -288,13 +315,88 @@ namespace soem_driver
 
     // CallbackReturn SOEMDriver::on_error(const rclcpp_lifecycle::State &previous_state){};
 
+    SOEMDriver::SOEMDiagnosticsPublisher::SOEMDiagnosticsPublisher(
+        const std::string name,
+        const rclcpp::NodeOptions &options,
+        soem_master::SOEMMaster &master,
+        const std::unordered_map<std::string, std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave>> &slaves,
+        const std::chrono::milliseconds cycle_time_ms) : rclcpp::Node(name, options),
+                                                         master(master),
+                                                         slaves(slaves)
+    {
+        pub = create_publisher<diagnostic_msgs::msg::DiagnosticArray>("diagnostics", 10);
+        timer = create_wall_timer(cycle_time_ms, [this]
+                                  {
+            diagnostic_updater::DiagnosticStatusWrapper builder{};
+            builder.add("foo", "bar");
+
+            auto msg = std::make_unique<diagnostic_msgs::msg::DiagnosticArray>();
+            msg->status.push_back(std::move(builder));
+
+            pub->publish(std::move(msg)); });
+    };
+
+    SOEMDriver::SOEMDiagnosticsPublisher::~SOEMDiagnosticsPublisher(){};
+
+    void SOEMDriver::run_diagnostics_publisher(std::chrono::milliseconds cycle_time_ms)
+    {
+        // RCLCPP_DEBUG(rclcpp::get_logger(__logger_name), "Requested to run threaded diagnostics publisher Node; checking executor state");
+        if (!driver_ros_node_executor || (driver_ros_node_executor && !driver_ros_node_executor->is_spinning()))
+        {
+            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Starting diagnostics publisher thread");
+            driver_ros_node_executor_thread = std::thread(
+                [&]()
+                {
+                    // make executor
+                    driver_ros_node_executor = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
+
+                    // diagnostics publisher
+                    driver_ros_node = std::make_shared<SOEMDiagnosticsPublisher>(
+                        "soem_driver_" + instance_name + "_diagnostics",
+                        rclcpp::NodeOptions(),
+                        master,
+                        slaves,
+                        cycle_time_ms);
+
+                    driver_ros_node_executor->add_node(driver_ros_node);
+                    driver_ros_node_executor->spin();
+                });
+
+            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Diagnostics publisher started");
+        }
+        else
+        {
+            RCLCPP_WARN(rclcpp::get_logger(__logger_name), "Diagnostics publisher already running!");
+        }
+    };
+
+    void SOEMDriver::stop_diagnostics_publisher()
+    {
+        if (driver_ros_node_executor_thread.joinable())
+        {
+            if (driver_ros_node_executor)
+            {
+                driver_ros_node_executor->cancel();
+            }
+
+            driver_ros_node_executor_thread.join();
+        }
+
+        // cleanup after canceling
+        driver_ros_node_executor.reset();
+
+        RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Diagnostics publisher stopped");
+    };
+
     // methods ordered by expected order of execution during operation
 
     CallbackReturn SOEMDriver::on_init(const hardware_interface::HardwareInfo &info)
     {
+        // initialize driver
         hardware_interface::SystemInterface::on_init(info);
 
-        __logger_name = "SOEMDriver<" + info.name + ">";
+        instance_name = info.name;
+        __logger_name = "SOEMDriver<" + instance_name + ">";
         RCLCPP_DEBUG(rclcpp::get_logger(__logger_name), "Initializing SOEMDriver");
 
         try
@@ -463,6 +565,8 @@ namespace soem_driver
             initialized_slaves.push_back(slave_it->second);
 
             RCLCPP_INFO(rclcpp::get_logger(__logger_name), "successfully configured slave %s", slave_info.name.c_str());
+
+            run_diagnostics_publisher(diagnostics_cycle_ms);
         }
 
         // start EtherCAT bus and setup data access structures
@@ -656,43 +760,10 @@ namespace soem_driver
         return command_interfaces;
     };
 
-    // std::vector<hardware_interface::StateInterface> SOEMDriver::export_state_interfaces()
-    // {
-    //     // return claims_resolver.export_state_interfaces();
-
-    //     std::vector<hardware_interface::StateInterface> state_interfaces;
-    //     auto state_interfaces_by_joint = claims_resolver.export_state_interfaces_by_joint();
-
-    //     std::for_each(state_interfaces_by_joint.begin(), state_interfaces_by_joint.end(), [&](auto&& single_joints_state_interfaces_it)
-    //                   {
-    //                       auto interfaces = state_interfaces_by_joint.extract(single_joints_state_interfaces_it.first);
-    //                       state_interfaces.reserve(state_interfaces.size() + interfaces.mapped().size());
-    //                       std::move(std::begin(interfaces.mapped()), std::end(interfaces.mapped()), std::back_inserter(state_interfaces));
-    //                   });
-
-    //     return state_interfaces;
-    // };
-
-    // std::vector<hardware_interface::CommandInterface> SOEMDriver::export_command_interfaces()
-    // {
-    //     // return claims_resolver.export_command_interfaces();
-
-    //     std::vector<hardware_interface::CommandInterface> command_interfaces;
-    //     auto command_interfaces_by_joint = claims_resolver.export_command_interfaces_by_joint();
-
-    //     std::for_each(command_interfaces_by_joint.begin(), command_interfaces_by_joint.end(), [&](auto&& single_joints_command_interfaces_it)
-    //                   {
-    //                       auto interfaces = command_interfaces_by_joint.extract(single_joints_command_interfaces_it.first);
-    //                       command_interfaces.reserve(command_interfaces.size() + interfaces.mapped().size());
-    //                       std::move(std::begin(interfaces.mapped()), std::end(interfaces.mapped()), std::back_inserter(command_interfaces));
-    //                   });
-
-    //     return command_interfaces;
-    // };
-
     CallbackReturn SOEMDriver::on_activate(const rclcpp_lifecycle::State & /* previous_state */)
     {
         master.run(ec_cycle_us);
+
         return CallbackReturn::SUCCESS;
     };
 
@@ -768,7 +839,23 @@ namespace soem_driver
 
     CallbackReturn SOEMDriver::on_deactivate(const rclcpp_lifecycle::State & /* previous_state */)
     {
+        RCLCPP_INFO(rclcpp::get_logger(__logger_name), "deactivating driver");
         master.stop();
+        return CallbackReturn::SUCCESS;
+    };
+
+    CallbackReturn SOEMDriver::on_cleanup(const rclcpp_lifecycle::State & /* previous_state */)
+    {
+        RCLCPP_INFO(rclcpp::get_logger(__logger_name), "cleaning up");
+        stop_diagnostics_publisher();
+        return CallbackReturn::SUCCESS;
+    };
+
+    CallbackReturn SOEMDriver::on_shutdown(const rclcpp_lifecycle::State & /* previous_state */)
+    {
+        RCLCPP_INFO(rclcpp::get_logger(__logger_name), "shutting down");
+        master.stop();
+        stop_diagnostics_publisher();
         return CallbackReturn::SUCCESS;
     };
 

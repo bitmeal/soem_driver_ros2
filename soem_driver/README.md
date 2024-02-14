@@ -204,25 +204,42 @@ the hardware interface implements and follows the call sequence of the lifecycle
 source: https://github.com/ros-controls/ros2_control/issues/551#issuecomment-947174795
 ### call sequence
 the relation of the hardware interfaces method calls by the resource manager to the individual slaves driver modules is as follows:
-* driver: `on_init()`
+* driver: `on_init()` []-->[unconfigured]
+  * *process URDF*
   * load slave modules
   * slave modules: `init()`
   * slave_modules: `export_state|command_interfaces()`
 * driver: `export_state|command_interfaces()`
-* driver: `on_configure()`
+* driver: `on_configure()` [unconfigured]-->[inactive]
+  * *initializing hardware communications*
   * master: `init()`
   * slave modules: `configure()`
   * master: `start_bus()` (SAFE OP)
+  * master: executes slave SDO setup hooks
   * driver: assigns PDOs to slave modules
-* driver: `on_activate()`
-  * master: `run()`
-* <loop>
+  * driver: start **diagnostics publisher**
+* driver: `on_activate()`[inactive]-->[active]
+  * *start cyclic process data transfer*
+  * master: `run()` (OP)
+* {loop}
   * `read()`
   * `write()`
   * `prepare_command_mode_switch()`
   * `perform_command_mode_switch()`
-* driver: `on_deactivate()`
-  * master: `stop()`
+* driver: `on_deactivate()` [active]-->[inactive]
+  * master: `stop()` (SAFE OP)
+* driver: `on_cleanup()` [inactive]-->[unconfigured]
+  * driver: stop **diagnostics publisher**
+  * master: `deinit()`
+* driver: `on_shutdown()` [active]-->[finalized]
+  * equivalent `on_deactivate()`
+  * equivalent `on_cleanup()`
+  * {destruct}
+* driver: `on_shutdown()` [inactive]-->[finalized]
+  * equivalent `on_cleanup()`
+  * {destruct}
+* driver: `on_shutdown()` [unconfigured]-->[finalized]
+  * {destruct}
 
 ### buffer type
 simple `std::span<std::byte>`, deeper dive in [3]
@@ -231,9 +248,10 @@ simple `std::span<std::byte>`, deeper dive in [3]
 * [ ] what to do with bit oriented slaves?
 * [ ] future/promise as synchronization primitive for mailboxes with ethercat thread?
 * [ ] check parsed joints and mappings in tests
-* [ ] logging queue from realtime loop
+* [x] ~~logging~~ diagnostics queue from realtime loop
 * [ ] check dynamic allocations in RT codepath
 * [ ] mechanism to log/publish diagnostic messages; even from slave modules
+* [ ] instantiate master in `on_configure()` and destroy in `on_cleanup()` to better follow lifecycle
 * [ ] actually reference all given references in README
 
 ## References

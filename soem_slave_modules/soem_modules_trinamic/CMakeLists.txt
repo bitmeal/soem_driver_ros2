@@ -8,7 +8,9 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(soem_driver_slave_interface REQUIRED)
+find_package(soem_driver_common REQUIRED)
 find_package(yaml_cpp_vendor REQUIRED)
+find_package(Boost REQUIRED)
 
 
 file(GLOB_RECURSE PLUGINS_SRC src/*.cpp)
@@ -22,6 +24,7 @@ ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   pluginlib
   soem_driver_slave_interface
+  soem_driver_common
   yaml_cpp_vendor
 )
 

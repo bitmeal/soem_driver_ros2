@@ -118,13 +118,13 @@ find_package(ament_cmake REQUIRED)
 # )
 
 add_library(
-  ${PROJECT_NAME}
+  ${PROJECT_NAME}_includes
   INTERFACE
 )
 
-set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 20)
+set_property(TARGET ${PROJECT_NAME}_includes PROPERTY CXX_STANDARD 20)
 
-target_include_directories(${PROJECT_NAME} INTERFACE
+target_include_directories(${PROJECT_NAME}_includes INTERFACE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
@@ -150,7 +150,9 @@ install(
 # endif()
 
 # provide supplemental packages
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/supplemental)
+# ament does not export targets when using add_subdirectory()
+# using include() to stay in this projects scope
+include(${CMAKE_CURRENT_SOURCE_DIR}/supplemental/CMakeLists.txt)
 
 
 ## EXPORTS

@@ -7,8 +7,9 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
-find_package(hardware_interface REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(hardware_interface REQUIRED)
+find_package(diagnostic_updater REQUIRED)
 find_package(soem_driver_common REQUIRED)
 find_package(Boost REQUIRED)
 
@@ -29,8 +30,9 @@ target_include_directories(${PROJECT_NAME} INTERFACE
 )
 
 target_link_libraries(${PROJECT_NAME} INTERFACE
-  hardware_interface
   rclcpp
+  hardware_interface
+  diagnostic_updater
   soem_driver_common
   Boost::boost
 )
@@ -68,6 +70,7 @@ ament_export_include_directories(
 ament_export_dependencies(
   rclcpp
   hardware_interface
+  diagnostic_updater
   soem_driver_common
   Boost
 )

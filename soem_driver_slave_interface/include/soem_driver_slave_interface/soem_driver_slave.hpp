@@ -11,6 +11,8 @@
 
 #include "hardware_interface/system_interface.hpp"
 
+#include "diagnostic_updater/diagnostic_status_wrapper.hpp"
+
 #include "soem_driver_common/soem_driver_common.hpp"
 #include <boost/lockfree/spsc_queue.hpp>
 
@@ -46,6 +48,8 @@ namespace soem_driver_slave_interface
 
         boost::lockfree::spsc_queue<std::vector<std::byte>> mbx_send_queue;
         boost::lockfree::spsc_queue<std::vector<std::byte>> mbx_receive_queue;
+
+        boost::lockfree::spsc_queue<diagnostic_msgs::msg::DiagnosticStatus, boost::lockfree::capacity<1>> diagnostics_status_queue;
         // std::deque<std::vector<std::byte>> mbx_send_queue;
         // std::deque<std::vector<std::byte>> mbx_receive_queue;
 

@@ -8,7 +8,8 @@
 #include <thread>
 #include <chrono>
 #include <atomic>
-// #include <boost/lockfree/spsc_queue.hpp>
+
+#include <boost/lockfree/spsc_queue.hpp>
 
 #include "soem_driver_common/soem_driver_common.hpp"
 extern "C"
@@ -45,15 +46,14 @@ namespace soem_master
             soem_driver::buffer RxPDO,
             const soem_driver::buffer TxPDO,
             soem_driver::buffer SMbx,
-            const soem_driver::buffer RMbx
-            ) : slave_info(slave_info),
-                RxPDO(RxPDO),
-                TxPDO(TxPDO),
-                SMbx(SMbx),
-                RMbx(RMbx),
-                send_mbx_request(false),
-                receive_mbx(false),
-                receive_mbx_has_unread(false){};
+            const soem_driver::buffer RMbx) : slave_info(slave_info),
+                                              RxPDO(RxPDO),
+                                              TxPDO(TxPDO),
+                                              SMbx(SMbx),
+                                              RMbx(RMbx),
+                                              send_mbx_request(false),
+                                              receive_mbx(false),
+                                              receive_mbx_has_unread(false){};
 
         SOEMEcSlaveInfo &slave_info;
 
@@ -80,6 +80,49 @@ namespace soem_master
     class SOEMMaster
     {
     public:
+        enum SOEMMasterState
+        {
+            UNINITIALIZED,
+            INITIALIZED,
+            STARTING,
+            IDLE,
+            RUNNING,
+            ERROR
+        };
+
+        struct SOEMMasterStatus
+        {
+            size_t error_count;
+            size_t rx_error_count;
+            size_t tx_error_count;
+            size_t rx_error_count_consecutive;
+            size_t tx_error_count_consecutive;
+            size_t other_ec_error_count_consecutive;
+
+            SOEMMasterState state;
+        };
+
+        static const std::string master_state_to_string(SOEMMasterState state)
+        {
+            switch (state)
+            {
+            case UNINITIALIZED:
+                return "UNINITIALIZED";
+            case INITIALIZED:
+                return "INITIALIZED";
+            case STARTING:
+                return "STARTING";
+            case IDLE:
+                return "IDLE";
+            case RUNNING:
+                return "RUNNING";
+            case ERROR:
+                return "ERROR";
+            default:
+                return "UNKNOWN";
+            }
+        };
+
         SOEMMaster();
         ~SOEMMaster();
 
@@ -87,6 +130,8 @@ namespace soem_master
         std::chrono::microseconds timeout_process_data; // = EC_TIMEOUTRET
         std::chrono::microseconds timeout_mbx_send;     // = EC_TIMEOUTTXM
         std::chrono::microseconds timeout_mbx_receive;  // = EC_TIMEOUTRXM
+
+        boost::lockfree::spsc_queue<SOEMMasterStatus, boost::lockfree::capacity<1>> status_queue;
 
         std::string __logger_name;
         const std::deque<SOEMEcSlaveInfo> &slaves;
@@ -97,6 +142,8 @@ namespace soem_master
 
         // initialize interface and scan bus for slaves
         void init(const std::string &interface);
+        // close interface
+        void deinit();
         // get all devices to OP state, calling attached SDO setup hooks on transition from PO to SO
         void start_bus(size_t IOmap_size = 4096);
 
@@ -115,6 +162,8 @@ namespace soem_master
         void slave_attach_SDO_setup_hook(const SOEMEcSlaveInfo &slave, std::function<void(soem_driver::SDOwrite_t)> hook_fn);
 
     private:
+        SOEMMasterStatus status;
+
         std::map<uint16_t, std::function<void(soem_driver::SDOwrite_t)>> SDO_setup_hook_store;
 
         // PDOs
@@ -142,7 +191,7 @@ namespace soem_master
         ec_mbxbuft EC_RMbx;
         soem_driver::buffer RMbx;
         std::vector<std::vector<std::byte>> RMbx_working;
-        
+
         // get buffer to working set of slaves RxPDO & RxPDO
         // call after calling start_bus() only!
         // private now: use slave data access structures for slave DA!
@@ -150,14 +199,13 @@ namespace soem_master
         const soem_driver::buffer getTxPDO(SOEMEcSlaveInfo slave);
         const soem_driver::buffer getSMbx(SOEMEcSlaveInfo slave);
         const soem_driver::buffer getRMbx(SOEMEcSlaveInfo slave);
-        
+
         // slave information/access structures
         std::deque<SOEMEcSlaveInfo> _slaves;
         std::deque<SOEMEcSlaveDataAccess> _slaves_data_access;
 
         void ec_log_slaves();
 
-        // TODO(bitmeal): static function does not allow multiple master instances and will lead to colissions!
         int call_slave_SDO_setup_hook(uint16_t slave_position);
 
         ////////////////////////////
