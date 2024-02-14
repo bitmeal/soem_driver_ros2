@@ -98,11 +98,12 @@ namespace soem_master
             size_t rx_error_count_consecutive;
             size_t tx_error_count_consecutive;
             size_t other_ec_error_count_consecutive;
+            size_t missed_cycle_deadline_count;
 
             SOEMMasterState state;
         };
 
-        static const std::string master_state_to_string(SOEMMasterState state)
+        static const std::string master_state_to_string(const SOEMMasterState state)
         {
             switch (state)
             {

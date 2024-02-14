@@ -67,10 +67,6 @@ namespace soem_driver
         CallbackReturn on_shutdown(const rclcpp_lifecycle::State &previous_state) override;
 
     private:
-        // bool is_init;
-        // bool is_configured;
-        // bool is_active;
-
         std::string instance_name;
         std::string __logger_name;
 
@@ -135,9 +131,6 @@ namespace soem_driver
         std::shared_ptr<SOEMDiagnosticsPublisher> driver_ros_node;
         std::thread driver_ros_node_executor_thread;
         std::chrono::milliseconds diagnostics_cycle_ms;
-        // std::thread diagnostics_publisher;
-        // std::atomic_bool diagnostics_publisher_terminate;
-        // std::atomic_bool diagnostics_publisher_running;
 
         // void diagnostics_publisher_task(std::chrono::milliseconds cycle_time_ms);
         void run_diagnostics_publisher(std::chrono::milliseconds cycle_time_ms);

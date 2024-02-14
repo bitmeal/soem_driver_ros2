@@ -73,6 +73,7 @@ namespace soem_master
                   .rx_error_count_consecutive = 0,
                   .tx_error_count_consecutive = 0,
                   .other_ec_error_count_consecutive = 0,
+                  .missed_cycle_deadline_count = 0,
                   .state = SOEMMaster::SOEMMasterState::UNINITIALIZED}),
           IOmap({}),
           RxPDO_working({}),
@@ -351,7 +352,7 @@ namespace soem_master
             }
 
             // read/write process data
-            if (!ecx_send_overlap_processdata_group(&ecx_context, 0))
+            if (ecx_send_overlap_processdata_group(&ecx_context, 0) <= 0)
             {
                 if (status.tx_error_count_consecutive == 0)
                 {
@@ -376,7 +377,7 @@ namespace soem_master
                 status.tx_error_count_consecutive = 0;
             }
 
-            if (!ecx_receive_processdata(&ecx_context, timeout_process_data.count()))
+            if (ecx_receive_processdata(&ecx_context, timeout_process_data.count()) <= 0)
             {
                 if (status.rx_error_count_consecutive == 0)
                 {
@@ -483,17 +484,20 @@ namespace soem_master
             // commit state
             status.state = state_flag;
 
-            // push state to queue if space available
-            status_queue.push(status);
-
-            // sleep until next cycle
+            // prepare next cycle
             time_next_loop += cycle_time_us;
             auto time_now = std::chrono::high_resolution_clock::now();
             if (time_now > time_next_loop)
             {
+                status.missed_cycle_deadline_count++;
+
                 time_next_loop = time_now;
-                // TODO(bitmeal): issue warning
             }
+
+            // push state to queue if space available
+            status_queue.push(status);
+
+            // sleep until next cycle
             std::this_thread::sleep_until(time_next_loop);
         }
 

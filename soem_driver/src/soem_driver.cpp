@@ -1,7 +1,7 @@
 #include "soem_driver/soem_driver.hpp"
 #include "soem_driver/alias_interface_factory.hpp"
 
-// #include "rclcpp/rclcpp.hpp"
+#include "soem_driver/soem_master_helpers_ros.hpp"
 #include "diagnostic_updater/diagnostic_status_wrapper.hpp"
 
 #include "yaml-cpp/yaml.h"
@@ -12,13 +12,7 @@ namespace soem_driver
 {
 
     SOEMDriver::SOEMDriver() : // <guard linebreak>
-                               //    diagnostics_publisher_terminate({false}),
-                               //    diagnostics_publisher_running({false}),
-                               //    diagnostics_publisher({}),
                                hardware_interface::SystemInterface(),
-                            //    is_init({false}),
-                            //    is_configured({false}),
-                            //    is_active({false}),
                                instance_name({"generic"}),
                                driver_ros_node_executor_thread({}){};
 
@@ -325,13 +319,15 @@ namespace soem_driver
                                                          slaves(slaves)
     {
         pub = create_publisher<diagnostic_msgs::msg::DiagnosticArray>("diagnostics", 10);
-        timer = create_wall_timer(cycle_time_ms, [this]
+        timer = create_wall_timer(cycle_time_ms, [&]
                                   {
-            diagnostic_updater::DiagnosticStatusWrapper builder{};
-            builder.add("foo", "bar");
-
             auto msg = std::make_unique<diagnostic_msgs::msg::DiagnosticArray>();
-            msg->status.push_back(std::move(builder));
+
+            master.status_queue.consume_all([&](const auto master_status){
+                msg->status.push_back(std::move(build_master_status_diagnostics_ros(master_status)));
+            });
+
+            // msg->status.push_back(std::move(builder));
 
             pub->publish(std::move(msg)); });
     };
