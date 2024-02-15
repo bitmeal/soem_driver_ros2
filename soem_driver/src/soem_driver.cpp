@@ -324,14 +324,22 @@ namespace soem_driver
                                   {
             auto msg = std::make_unique<diagnostic_msgs::msg::DiagnosticArray>();
 
+            // master diagnostics
             master.status_queue.consume_all([&](const auto master_status){
                 auto master_diagnostics = build_master_status_diagnostics_ros(master_status);
                 master_diagnostics.set__hardware_id(interface);
                 msg->status.push_back(std::move(master_diagnostics));
             });
 
-            // msg->status.push_back(std::move(builder));
+            // slave diagnostics
+            std::for_each(slaves.begin(), slaves.end(), [&](auto& slave){
+                auto& [_, slave_instance] = slave;
+                slave_instance->diagnostics_status_queue.consume_all([&](auto slave_diag){
+                    msg->status.push_back(std::move(slave_diag));
+                });
+            });
 
+            msg->header.stamp = get_clock()->now();
             pub->publish(std::move(msg)); });
     };
 
