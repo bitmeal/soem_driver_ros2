@@ -311,6 +311,7 @@ namespace soem_driver
 
     SOEMDriver::SOEMDiagnosticsPublisher::SOEMDiagnosticsPublisher(
         const std::string name,
+        const std::string& interface,
         const rclcpp::NodeOptions &options,
         soem_master::SOEMMaster &master,
         const std::unordered_map<std::string, std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave>> &slaves,
@@ -324,7 +325,9 @@ namespace soem_driver
             auto msg = std::make_unique<diagnostic_msgs::msg::DiagnosticArray>();
 
             master.status_queue.consume_all([&](const auto master_status){
-                msg->status.push_back(std::move(build_master_status_diagnostics_ros(master_status)));
+                auto master_diagnostics = build_master_status_diagnostics_ros(master_status);
+                master_diagnostics.set__hardware_id(interface);
+                msg->status.push_back(std::move(master_diagnostics));
             });
 
             // msg->status.push_back(std::move(builder));
@@ -349,6 +352,7 @@ namespace soem_driver
                     // diagnostics publisher
                     driver_ros_node = std::make_shared<SOEMDiagnosticsPublisher>(
                         "soem_driver_" + instance_name + "_diagnostics",
+                        ec_interface,
                         rclcpp::NodeOptions(),
                         master,
                         slaves,
@@ -501,8 +505,17 @@ namespace soem_driver
 
     CallbackReturn SOEMDriver::on_configure(const rclcpp_lifecycle::State & /* previous_state */)
     {
-        // initialize EtherCAT communications and discover slaves
-        master.init(ec_interface);
+        try
+        {
+            // initialize EtherCAT communications and discover slaves
+            master.init(ec_interface);
+        }
+        catch (std::exception &e)
+        {
+            RCLCPP_ERROR(rclcpp::get_logger(__logger_name), "master failed initialization: %s", e.what());
+
+            return CallbackReturn::FAILURE;
+        }
 
         // configure slaves with info from bus and attach SDO setup hooks
         for (auto &&slave_info : slave_infos)

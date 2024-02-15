@@ -11,11 +11,25 @@ namespace soem_master
     {
             diagnostic_updater::DiagnosticStatusWrapper builder{};
 
+            builder.set__name("SOEMMaster");
+            builder.summary(diagnostic_msgs::msg::DiagnosticStatus::OK, "");
+
+            if(status.rx_error_count_consecutive || status.tx_error_count_consecutive || status.other_ec_error_count_consecutive)
+            {
+                builder.mergeSummary(diagnostic_msgs::msg::DiagnosticStatus::ERROR, "Errors communicating with slaves on EtherCAT bus!");
+            }
+
+            if(status.missed_cycle_deadline_count)
+            {
+                builder.mergeSummary(diagnostic_msgs::msg::DiagnosticStatus::WARN, "Realtime loop misses cycle deadline!");
+            }
+
             builder.add("state", SOEMMaster::master_state_to_string(status.state));
             builder.add("error_count", status.error_count);
             builder.add("rx_error_count", status.rx_error_count);
             builder.add("tx_error_count", status.tx_error_count);
             builder.add("missed_cycle_deadline_count", status.missed_cycle_deadline_count);
+            
             // builder.add("", status.rx_error_count_consecutive);
             // builder.add("", status.tx_error_count_consecutive);
             // builder.add("", status.other_ec_error_count_consecutive);

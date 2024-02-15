@@ -18,7 +18,6 @@
 #include "transmission_interface/transmission_loader.hpp"
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 
-
 #include "soem_driver_common/soem_driver_common.hpp"
 #include "soem_driver_slave_interface/soem_driver_slave.hpp"
 #include "soem_driver/soem_master.hpp"
@@ -117,6 +116,7 @@ namespace soem_driver
         public:
             SOEMDiagnosticsPublisher(
                 const std::string name,
+                const std::string &interface,
                 const rclcpp::NodeOptions &options,
                 soem_master::SOEMMaster &master,
                 const std::unordered_map<std::string, std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave>> &slaves,
