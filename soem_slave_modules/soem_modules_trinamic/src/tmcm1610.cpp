@@ -73,7 +73,6 @@ namespace soem_slave_modules
             INITIALIZED = 0x8000,
             ETHERCAT_TIMEOUT = 0x10000,
             I2T_EXCEEDED = 0x20000
-
         };
 
         struct RxPDO_t
@@ -180,8 +179,9 @@ namespace soem_slave_modules
         constexpr static uint64_t product_code = 0x0070;
 
         bool has_gripper = false;
-        double gear_ratio = 0.0;
-        double torque_constant = 0.0;
+        // double gear_ratio = 0.0;
+        uint32_t encoder_ticks = 0;
+        double torque_constant = .0;
 
         std::vector<double> state_interfaces;
         std::vector<double> command_interfaces;
@@ -189,6 +189,8 @@ namespace soem_slave_modules
         bool init(std::unordered_map<std::string, std::string> /* parameters */) override
         {
             RCLCPP_INFO(rclcpp::get_logger(__logger_name), "trinamic_tmcm1610 instantiated");
+
+            // fetch_mailbox = true;
 
             return true;
         }
@@ -243,11 +245,11 @@ namespace soem_slave_modules
                 }
             }
 
-            if (parameters.find("gear_ratio") == parameters.end())
-            {
-                RCLCPP_ERROR(rclcpp::get_logger(__logger_name), "no <gear_ratio> parameter found!");
-                return false;
-            }
+            // if (parameters.find("gear_ratio") == parameters.end())
+            // {
+            //     RCLCPP_ERROR(rclcpp::get_logger(__logger_name), "no <gear_ratio> parameter found!");
+            //     return false;
+            // }
 
             if (parameters.find("torque_constant") == parameters.end())
             {
@@ -256,11 +258,12 @@ namespace soem_slave_modules
             }
 
             torque_constant = std::stod(parameters["torque_constant"]);
-            gear_ratio = std::stod(parameters["gear_ratio"]);
+            // gear_ratio = std::stod(parameters["gear_ratio"]);
 
             RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Configuration OK! Vendor ID(0x%016lx), Product Code(0x%016lx), Product Revision(0x%016lx)", this->vendor_id, this->product_code, revision_number);
             RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Torque constant: %f [Nm/A]", torque_constant);
-            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Gear ratio: %f/1", gear_ratio);
+            // RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Gear ratio: %f/1", gear_ratio);
+
             if (has_gripper)
             {
                 RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Module configured for gripper");
@@ -320,13 +323,12 @@ namespace soem_slave_modules
             }
 
             // apply requested start interfaces/claims to next_command_mode
-            for(auto& start_interface : start_interfaces)
+            for (auto &start_interface : start_interfaces)
             {
                 auto start_mode = claim_to_command_mode(start_interface);
-                if(
+                if (
                     start_mode == next_command_mode ||
-                    next_command_mode == NONE
-                )
+                    next_command_mode == NONE)
                 {
                     next_command_mode = start_mode;
                 }
@@ -343,7 +345,7 @@ namespace soem_slave_modules
 
         hardware_interface::return_type perform_command_mode_switch(
             const std::vector<std::string> &start_interfaces,
-            const std::vector<std::string> & stop_interfaces) override
+            const std::vector<std::string> &stop_interfaces) override
         {
             // TODO(bitmeal): handle gripper
 
@@ -358,13 +360,12 @@ namespace soem_slave_modules
             }
 
             // apply requested start interfaces/claims to next_command_mode
-            for(auto& start_interface : start_interfaces)
+            for (auto &start_interface : start_interfaces)
             {
                 auto start_mode = claim_to_command_mode(start_interface);
-                if(
+                if (
                     start_mode == next_command_mode ||
-                    next_command_mode == NONE
-                )
+                    next_command_mode == NONE)
                 {
                     next_command_mode = start_mode;
                 }
@@ -382,9 +383,62 @@ namespace soem_slave_modules
             return hardware_interface::return_type::OK;
         };
 
+        diagnostic_msgs::msg::DiagnosticStatus build_diagnostics(const uint32_t pdo_status)
+        {
+            diagnostic_updater::DiagnosticStatusWrapper builder{};
+
+            builder.set__name(__logger_name);
+
+            // TODO(bitmeal): actual status
+            builder.summary(diagnostic_msgs::msg::DiagnosticStatus::OK, "");
+
+            // TODO(bitmeal): state machine state
+
+            builder.add("OVER_CURRENT", (bool)((uint32_t)EC_StatusFlags::OVER_CURRENT & pdo_status));
+            builder.add("UNDER_VOLTAGE", (bool)((uint32_t)EC_StatusFlags::UNDER_VOLTAGE & pdo_status));
+            builder.add("OVER_VOLTAGE", (bool)((uint32_t)EC_StatusFlags::OVER_VOLTAGE & pdo_status));
+            builder.add("OVER_TEMPERATURE", (bool)((uint32_t)EC_StatusFlags::OVER_TEMPERATURE & pdo_status));
+            builder.add("MOTOR_HALTED", (bool)((uint32_t)EC_StatusFlags::MOTOR_HALTED & pdo_status));
+            builder.add("HALL_SENSOR_ERROR", (bool)((uint32_t)EC_StatusFlags::HALL_SENSOR_ERROR & pdo_status));
+            builder.add("ENCODER_ERROR", (bool)((uint32_t)EC_StatusFlags::ENCODER_ERROR & pdo_status));
+            // builder.add("INITIALIZATION_ERROR", (bool)((uint32_t)EC_StatusFlags::INITIALIZATION_ERROR & pdo_status));
+            builder.add("PWM_MODE_ACTIVE", (bool)((uint32_t)EC_StatusFlags::PWM_MODE_ACTIVE & pdo_status));
+            builder.add("VELOCITY_MODE", (bool)((uint32_t)EC_StatusFlags::VELOCITY_MODE & pdo_status));
+            builder.add("POSITION_MODE", (bool)((uint32_t)EC_StatusFlags::POSITION_MODE & pdo_status));
+            builder.add("TORQUE_MODE", (bool)((uint32_t)EC_StatusFlags::TORQUE_MODE & pdo_status));
+            // builder.add("EMERGENCY_STOP", (bool)((uint32_t)EC_StatusFlags::EMERGENCY_STOP & pdo_status));
+            // builder.add("FREERUNNING", (bool)((uint32_t)EC_StatusFlags::FREERUNNING & pdo_status));
+            builder.add("POSITION_REACHED", (bool)((uint32_t)EC_StatusFlags::POSITION_REACHED & pdo_status));
+            builder.add("INITIALIZED", (bool)((uint32_t)EC_StatusFlags::INITIALIZED & pdo_status));
+            builder.add("ETHERCAT_TIMEOUT", (bool)((uint32_t)EC_StatusFlags::ETHERCAT_TIMEOUT & pdo_status));
+            builder.add("I2T_EXCEEDED", (bool)((uint32_t)EC_StatusFlags::I2T_EXCEEDED & pdo_status));
+
+            builder.add("encoder_ticks", encoder_ticks);
+
+            return builder;
+        };
+
         // make data from TxPDO available in state interface
         hardware_interface::return_type read(const rclcpp::Time &, const rclcpp::Duration &) override
         {
+            mbx_consume_incoming([&](auto mbx_buffer)
+                                 {
+                // "deserialize" mailbox message
+                MbxReceive_t mbx_msg;
+                soem_driver::buffer mbx_msg_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&mbx_msg), sizeof(mbx_msg)};
+                std::copy(mbx_buffer.begin(), mbx_buffer.end(), mbx_msg_buffer.begin());
+
+                // act on message
+                if(
+                    mbx_msg.status == (uint8_t)TMCL::Status::SUCCESS &&
+                    mbx_msg.module_address == (uint8_t)MBX_TMCLModuleAddress::DRIVE &&
+                    mbx_msg.command == (uint8_t)TMCL::Command::GAP
+                )
+                {
+                    encoder_ticks = from_big_endian(mbx_msg.value);
+                    // fetch_mailbox = false;
+                } });
+
             // RCLCPP_INFO(rclcpp::get_logger(__logger_name), "trinamic_tmcm1610 - call to: %s", __FUNCTION__);
 
             // TODO(bitmeal): state machine to read config and home axes
@@ -392,7 +446,7 @@ namespace soem_slave_modules
             // GAP 251: Encoder direction (invert movement direction of axis)
 
             TxPDO_t TxPDO_map;
-            std::span<std::byte> TxPDO_map_buffer{reinterpret_cast<std::byte *>(&TxPDO_map), sizeof(TxPDO_map)};
+            soem_driver::buffer TxPDO_map_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&TxPDO_map), sizeof(TxPDO_map)};
             std::copy(TxPDO.begin(), TxPDO.end(), TxPDO_map_buffer.begin());
 
             // TODO(bitmeal): convert to actual required units
@@ -402,13 +456,30 @@ namespace soem_slave_modules
 
             // TODO(bitmeal): read gripper position if has gripper
 
+            // make diagnostics info available
+            diagnostics_status_queue.push(std::move(build_diagnostics(TxPDO_map.status_flags)));
+
             return hardware_interface::return_type::OK;
         };
 
         // write data from command interface to RxPDO
         hardware_interface::return_type write(const rclcpp::Time &, const rclcpp::Duration &) override
         {
-            // RCLCPP_INFO(rclcpp::get_logger(__logger_name), "trinamic_tmcm1610 - call to: %s", __FUNCTION__);
+            static bool req_encoder_ticks = true;
+            if (req_encoder_ticks)
+            {
+                MbxSend_t mbx_get_encoder_ticks{
+                    .module_address = (uint8_t)MBX_TMCLModuleAddress::DRIVE,
+                    .command = (uint8_t)TMCL::Command::GAP,
+                    .parameter = 250, // encoder ticks per revolution
+                    .motor_bank = 0,
+                    .value = 0 // ignored on GAP
+                };
+                soem_driver::buffer mbx_get_encoder_ticks_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&mbx_get_encoder_ticks), sizeof(mbx_get_encoder_ticks)};
+                mbx_enqueue_send({mbx_get_encoder_ticks_buffer.begin(), mbx_get_encoder_ticks_buffer.end()}, true, true);
+                req_encoder_ticks = false;
+            }
+
             return hardware_interface::return_type::OK;
         };
     };

@@ -29,6 +29,7 @@ namespace soem_master
             builder.add("rx_error_count", status.rx_error_count);
             builder.add("tx_error_count", status.tx_error_count);
             builder.add("missed_cycle_deadline_count", status.missed_cycle_deadline_count);
+            builder.add("cycle_count", status.cycle_count);
             
             // builder.add("", status.rx_error_count_consecutive);
             // builder.add("", status.tx_error_count_consecutive);

@@ -8,6 +8,7 @@
 #include <map>
 #include <functional>
 #include <algorithm>
+#include <tuple>
 
 #include "hardware_interface/system_interface.hpp"
 
@@ -31,12 +32,10 @@ namespace soem_driver_slave_interface
     public:
         SOEMDriverSlave()
             : _position_ec_bus(0),
-              mbx_send_queue({}),
-              mbx_receive_queue({}),
+              mbx_send_queue({8}),
+              mbx_receive_queue({8}),
               RxPDO(_RxPDO),
-              TxPDO(_TxPDO),
-              fetch_mailbox(false)
-              //   mbx_send_pending(_mbx_send_pending)
+              TxPDO(_TxPDO)
               {};
 
     private:
@@ -46,32 +45,8 @@ namespace soem_driver_slave_interface
 
         int _position_ec_bus;
 
-        boost::lockfree::spsc_queue<std::vector<std::byte>> mbx_send_queue;
+        boost::lockfree::spsc_queue<std::tuple<std::vector<std::byte>, bool, bool>> mbx_send_queue;
         boost::lockfree::spsc_queue<std::vector<std::byte>> mbx_receive_queue;
-
-        boost::lockfree::spsc_queue<diagnostic_msgs::msg::DiagnosticStatus, boost::lockfree::capacity<1>> diagnostics_status_queue;
-        // std::deque<std::vector<std::byte>> mbx_send_queue;
-        // std::deque<std::vector<std::byte>> mbx_receive_queue;
-
-        // bool _mbx_send_pending = false;
-        // std::function<void(const soem_driver::buffer)> _mbx_callback;
-        // soem_driver::buffer _TxMbx; // send
-
-        // void _dispatch_Mbx_callback(soem_driver::buffer msg)
-        // {
-        //     if (_mbx_callback)
-        //     {
-        //         // call the user provided callback
-        //         _mbx_callback(msg);
-
-        //         // if new send is pending, a new send has been scheduled from within callback
-        //         // if not pending, clear callback
-        //         if (!_mbx_send_pending)
-        //         {
-        //             _mbx_callback = nullptr;
-        //         }
-        //     }
-        // };
 
     protected:
         // PDO buffers will be assigned by drivers; buffer itself is const, data in buffer is non-const
@@ -81,18 +56,20 @@ namespace soem_driver_slave_interface
         // input
         const soem_driver::buffer &TxPDO;
 
+
+        boost::lockfree::spsc_queue<diagnostic_msgs::msg::DiagnosticStatus, boost::lockfree::capacity<1>> diagnostics_status_queue;
+
         // enqueue messages to be sent to slave mailbox
         // replies will only be fetched if fetch_mailbox = true
-        bool mbx_enqueue_send(const soem_driver::buffer msg)
+        // method takes care of owning the data sent in non owning buffer
+        bool mbx_enqueue_send(const soem_driver::buffer msg, bool read_response = true, bool read_mbx_raw = false)
         {
-            // std::vector<std::byte> holder(msg.begin(), msg.end());
-            // mbx_send_queue.push(holder);
-
-            return mbx_send_queue.push({msg.begin(), msg.end()});
+            return mbx_send_queue.push({{msg.begin(), msg.end()}, read_response, read_mbx_raw});
         };
 
-        // check mailbox for new mail every cycle
-        bool fetch_mailbox;
+        // // check mailbox for new mail every cycle
+        // bool fetch_mailbox;
+
         // consume all received mailbox messages with callback function
         // returns number of consumed messages
         // consuming incoming messages is responsibility of the slave
@@ -104,22 +81,6 @@ namespace soem_driver_slave_interface
                     callback({mbx_in.begin(), mbx_in.end()});
                 });
         };
-
-        // const bool &mbx_send_pending;
-        // bool schedule_Mbx_send(const soem_driver::buffer msg, std::function<void(const soem_driver::buffer)> callback)
-        // {
-        //     if (msg.size() > _TxMbx.size())
-        //     {
-        //         // TODO(bitmeal): log error?
-        //         return false;
-        //     }
-
-        //     std::copy(msg.begin(), msg.end(), _TxMbx.begin());
-        //     _mbx_send_pending = true;
-        //     _mbx_callback = callback;
-
-        //     return true;
-        // };
 
     public:
         virtual bool init(std::unordered_map<std::string, std::string> /* parameters */) { return true; };

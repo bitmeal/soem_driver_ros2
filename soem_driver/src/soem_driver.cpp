@@ -311,7 +311,7 @@ namespace soem_driver
 
     SOEMDriver::SOEMDiagnosticsPublisher::SOEMDiagnosticsPublisher(
         const std::string name,
-        const std::string& interface,
+        const std::string &interface,
         const rclcpp::NodeOptions &options,
         soem_master::SOEMMaster &master,
         const std::unordered_map<std::string, std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave>> &slaves,
@@ -485,7 +485,6 @@ namespace soem_driver
             {
                 RCLCPP_INFO(rclcpp::get_logger(__logger_name), "loading TransmissionLoader for transmission %s of type %s", transmission_info.name.c_str(), transmission_info.type.c_str());
 
-                // auto transmission_loader = transmission_loader_loader_.createSharedInstance(transmission_info.type);
                 auto transmission_loader = transmission_loader_loader_.createUniqueInstance(transmission_info.type);
 
                 RCLCPP_INFO(rclcpp::get_logger(__logger_name), "loading Transmission for transmission %s of type %s", transmission_info.name.c_str(), transmission_info.type.c_str());
@@ -572,8 +571,6 @@ namespace soem_driver
             // attach SDO setup hook
             master.slave_attach_SDO_setup_hook(
                 *ec_slave_it,
-                // std::bind does not return a std::function
-                // std::bind(&soem_driver_slave_interface::SOEMDriverSlave::setup_SDO_hook, &slave)
                 [&](auto... Args)
                 {
                     slave.setup_SDO_hook(Args...);
@@ -794,13 +791,17 @@ namespace soem_driver
         {
             auto &slave_da = master.slaves_data_access[slave_ptr->_position_ec_bus - 1];
             //// fetch read mailbox
-            // transfer modules request to read mailbox to master
-            slave_da.receive_mbx.store(slave_ptr->fetch_mailbox);
             // fetch mailbox content as long as master has pending messages
-            if (slave_da.receive_mbx_has_unread.load())
-            {
+            if (
+                // check pending
+                slave_da.receive_mbx_has_unread.load()
+                &&
+                // transfer
                 slave_ptr->mbx_receive_queue.push({slave_da.RMbx.begin(),
-                                                   slave_da.RMbx.end()});
+                                                   slave_da.RMbx.end()})
+            )
+            {
+                // clear pending flag if transfer successful
                 slave_da.receive_mbx_has_unread.store(false);
             }
 
@@ -826,11 +827,16 @@ namespace soem_driver
             slave_ptr->write(time, duration);
 
             //// send mailbox
-            if (!slave_da.send_mbx_request.load())
+            if (!slave_da.send_mbx_request.load() && !slave_da.receive_mbx.load())
             { // no ongoing send operation
-                slave_ptr->mbx_send_queue.consume_one([&](auto msg)
-                                                      { std::copy_n(msg.begin(), std::min(msg.size(), slave_da.SMbx.size()), slave_da.SMbx.begin()); });
-                slave_da.send_mbx_request.store(true);
+                slave_ptr->mbx_send_queue.consume_one([&](auto mbx_send_data)
+                                                      {
+                                                            auto [msg, read_response, read_mbx_raw] = mbx_send_data;
+                                                            std::copy_n(msg.begin(), std::min(msg.size(), slave_da.SMbx.size()), slave_da.SMbx.begin()); 
+
+                                                            slave_da.receive_mbx_raw.store(read_mbx_raw);
+                                                            slave_da.receive_mbx.store(read_response);
+                                                            slave_da.send_mbx_request.store(true); });
             }
         }
 

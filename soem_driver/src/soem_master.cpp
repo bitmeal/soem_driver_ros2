@@ -74,6 +74,7 @@ namespace soem_master
                   .tx_error_count_consecutive = 0,
                   .other_ec_error_count_consecutive = 0,
                   .missed_cycle_deadline_count = 0,
+                  .cycle_count = 0,
                   .state = SOEMMaster::SOEMMasterState::UNINITIALIZED}),
           IOmap({}),
           RxPDO_working({}),
@@ -84,6 +85,7 @@ namespace soem_master
           SMbx_working({}),
           RMbx((std::byte *)EC_RMbx, sizeof(EC_RMbx)),
           RMbx_working({}),
+          ecx_port({}),
           ecx_context({
               &ecx_port,         // .port          =
               &ec_slave[0],      // .slavelist     =
@@ -97,8 +99,6 @@ namespace soem_master
               &ec_elist,         // .elist         =
               &ec_idxstack,      // .idxstack      =
               &EcatError,        // .ecaterror     =
-              0,                 // .DCtO          =
-              0,                 // .DCl           =
               &ec_DCtime,        // .DCtime        =
               &ec_SMcommtype[0], // .SMcommtype    =
               &ec_PDOassign[0],  // .PDOassign     =
@@ -107,7 +107,8 @@ namespace soem_master
               &ec_FMMU,          // .eepFMMU       =
               NULL,              // .FOEhook()
               NULL,              // .EOEhook()
-              0                  // .manualstatechange
+              0,                 // .manualstatechange
+              NULL,              // .userdata
           }),
           is_init(false),
           cycle_counter(0),
@@ -193,7 +194,7 @@ namespace soem_master
             ecx_close(&ecx_context);
             RCLCPP_INFO(rclcpp::get_logger(__logger_name), "closed EtherCAT communication");
         }
-        
+
         status.state = SOEMMasterState::UNINITIALIZED;
     };
 
@@ -339,6 +340,7 @@ namespace soem_master
         while (!cyclic_master_terminate.load())
         {
             cycle_counter++; // int should be atomic
+            status.cycle_count = cycle_counter;
 
             // local state variable; commit to master status on end of cycle
             state_flag = SOEMMasterState::RUNNING;
@@ -410,9 +412,10 @@ namespace soem_master
                 TxPDO_transfer.notify_one();
             }
 
-            // send all mailboxes
+            // handle mailboxes
             for (auto &&slave_da : _slaves_data_access)
             {
+                // send mailbox
                 if (slave_da.send_mbx_request.load())
                 {
                     // load data to send buffer; SMbx is buffer view to EC_SMbx
@@ -426,21 +429,39 @@ namespace soem_master
                         slave_da.send_mbx_request.notify_one();
                     }
                 }
-            }
 
-            // receive all mailboxes
-            for (auto &&slave_da : _slaves_data_access)
-            {
+                // receive mailbox
                 if (slave_da.receive_mbx.load() && !slave_da.receive_mbx_has_unread.load())
                 {
                     ec_clearmbx(&EC_RMbx);
-                    if (0 < ecx_mbxreceive(&ecx_context, slave_da.slave_info.position, &EC_RMbx, timeout_mbx_receive.count()))
+                    bool mbx_raw = slave_da.receive_mbx_raw.load();
+                    if (
+                        (mbx_raw && 0 <= ecx_mbxreceive(&ecx_context, slave_da.slave_info.position, &EC_RMbx, timeout_mbx_receive.count())) ||
+                        (!mbx_raw && 0 < ecx_mbxreceive(&ecx_context, slave_da.slave_info.position, &EC_RMbx, timeout_mbx_receive.count())))
                     {
                         // load data to slaves receive buffer; RMbx is buffer view to EC_RMbx
                         std::copy_n(RMbx.begin(), slave_da.RMbx.size(), slave_da.RMbx.begin());
 
+                        // update flag and notify
                         slave_da.receive_mbx_has_unread.store(true);
                         slave_da.receive_mbx_has_unread.notify_one();
+
+                        // disable query; only one req/rep in transit
+                        slave_da.receive_mbx.store(false);
+
+                        // reset error raised by reading raw mailboxes
+                        if (mbx_raw && ecx_iserror(&ecx_context))
+                        {
+                            // pop last error; but back in list, if not from mailbox operation
+                            ec_errort ECErr;
+                            ecx_poperror(&ecx_context, &ECErr);
+
+                            if (!(ECErr.Slave == slave_da.slave_info.position && (ECErr.Etype == EC_ERR_TYPE_MBX_ERROR ||
+                                                                                ECErr.Etype == EC_ERR_TYPE_EMERGENCY)))
+                            {
+                                ecx_pusherror(&ecx_context, &ECErr);
+                            }
+                        }
                     }
                 }
             }
@@ -521,8 +542,6 @@ namespace soem_master
     // transfer RxPDO working set to realtime context and send to bus
     void SOEMMaster::transfer_RxPDO()
     {
-        // RxPDO_transfer_queue.push(RxPDO_working);
-
         if (cyclic_master_running.load() && !cyclic_master_terminate.load())
         {
             RxPDO_transfer.store(true);
@@ -532,9 +551,6 @@ namespace soem_master
     // transfer latest data from bus to TxPDO working set
     void SOEMMaster::transfer_TxPDO()
     {
-        // TxPDO_transfer_queue.consume_all([&](std::vector<std::byte> TxPDO)
-        //                                  { std::copy(TxPDO.begin(), TxPDO.end(), TxPDO_working.begin()); });
-
         if (cyclic_master_running.load() && !cyclic_master_terminate.load())
         {
             TxPDO_transfer.store(true);

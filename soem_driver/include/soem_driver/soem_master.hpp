@@ -53,6 +53,7 @@ namespace soem_master
                                               RMbx(RMbx),
                                               send_mbx_request(false),
                                               receive_mbx(false),
+                                              receive_mbx_raw(false),
                                               receive_mbx_has_unread(false){};
 
         SOEMEcSlaveInfo &slave_info;
@@ -71,6 +72,9 @@ namespace soem_master
 
         // mailbox will be queried continuously if true, and no unread data in buffer
         alignas(cacheline_width) std::atomic_bool receive_mbx;
+        // read raw mailbox; no handling of special mailbox protocols; no multiple response
+        alignas(cacheline_width) std::atomic_bool receive_mbx_raw;
+
         // indicates unread mailbox message in buffer, reset after read to get new messages
         alignas(cacheline_width) std::atomic_bool receive_mbx_has_unread;
     };
@@ -99,6 +103,7 @@ namespace soem_master
             size_t tx_error_count_consecutive;
             size_t other_ec_error_count_consecutive;
             size_t missed_cycle_deadline_count;
+            size_t cycle_count;
 
             SOEMMasterState state;
         };
@@ -215,53 +220,39 @@ namespace soem_master
         // TODO(bitmeal): wrap in context owning structure
 
         ec_slavet ec_slave[EC_MAXSLAVE];
+        /** number of slaves found on the network */
         int ec_slavecount;
+        /** slave group structure */
         ec_groupt ec_group[EC_MAXGROUP];
 
-        uint8_t ec_esibuf[EC_MAXEEPBUF];
-        uint32_t ec_esimap[EC_MAXEEPBITMAP];
+        /** cache for EEPROM read functions */
+        uint8 ec_esibuf[EC_MAXEEPBUF];
+        /** bitmap for filled cache buffer bytes */
+        uint32 ec_esimap[EC_MAXEEPBITMAP];
+        /** current slave for EEPROM cache buffer */
         ec_eringt ec_elist;
         ec_idxstackT ec_idxstack;
 
+        /** SyncManager Communication Type struct to store data of one slave */
         ec_SMcommtypet ec_SMcommtype[EC_MAX_MAPT];
+        /** PDO assign struct to store data of one slave */
         ec_PDOassignt ec_PDOassign[EC_MAX_MAPT];
+        /** PDO description struct to store data of one slave */
         ec_PDOdesct ec_PDOdesc[EC_MAX_MAPT];
 
+        /** buffer for EEPROM SM data */
         ec_eepromSMt ec_SM;
+        /** buffer for EEPROM FMMU data */
         ec_eepromFMMUt ec_FMMU;
+        /** Global variable TRUE if error available in error stack */
         boolean EcatError = FALSE;
 
-        int64_t ec_DCtime;
+        int64 ec_DCtime;
 
         ecx_portt ecx_port;
         ecx_redportt ecx_redport;
 
         ecx_contextt ecx_context;
-        // ecx_contextt ecx_context = {
-        //     &ecx_port,         // .port          =
-        //     &ec_slave[0],      // .slavelist     =
-        //     &ec_slavecount,    // .slavecount    =
-        //     EC_MAXSLAVE,       // .maxslave      =
-        //     &ec_group[0],      // .grouplist     =
-        //     EC_MAXGROUP,       // .maxgroup      =
-        //     &ec_esibuf[0],     // .esibuf        =
-        //     &ec_esimap[0],     // .esimap        =
-        //     0,                 // .esislave      =
-        //     &ec_elist,         // .elist         =
-        //     &ec_idxstack,      // .idxstack      =
-        //     &EcatError,        // .ecaterror     =
-        //     0,                 // .DCtO          =
-        //     0,                 // .DCl           =
-        //     &ec_DCtime,        // .DCtime        =
-        //     &ec_SMcommtype[0], // .SMcommtype    =
-        //     &ec_PDOassign[0],  // .PDOassign     =
-        //     &ec_PDOdesc[0],    // .PDOdesc       =
-        //     &ec_SM,            // .eepSM         =
-        //     &ec_FMMU,          // .eepFMMU       =
-        //     NULL,              // .FOEhook()
-        //     NULL,              // .EOEhook()
-        //     0                  // .manualstatechange
-        // };
         ////////////////////////////
 
         bool is_init;
