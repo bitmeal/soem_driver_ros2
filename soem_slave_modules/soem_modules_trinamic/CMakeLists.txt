@@ -14,12 +14,16 @@ find_package(Boost REQUIRED)
 
 
 file(GLOB_RECURSE PLUGINS_SRC src/*.cpp)
+
 add_library(${PROJECT_NAME} SHARED ${PLUGINS_SRC})
+target_compile_definitions(${PROJECT_NAME} PRIVATE HFSM2_ENABLE_PLANS)
 set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 20)
+
 target_include_directories(${PROJECT_NAME} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
+
 ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   pluginlib

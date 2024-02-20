@@ -1,4 +1,5 @@
 #include <cmath>
+#include <numbers>
 
 #include "soem_driver_slave_interface/soem_driver_slave.hpp"
 #include "soem_modules_trinamic/common.hpp"
@@ -6,6 +7,7 @@
 
 #include "yaml-cpp/yaml.h"
 
+// #define HFSM2_ENABLE_PLANS
 #include "hfsm2/machine.hpp"
 
 #include "rclcpp/rclcpp.hpp"
@@ -126,12 +128,12 @@ namespace soem_slave_modules
         static_assert(sizeof(MbxReceive_t) == 8);
 
         // state symbols
-        enum COMMAND_MODE
+        enum class COMMAND_MODE : uint8_t
         {
-            NONE,
-            EFFORT,
-            VELOCITY,
-            POSITION
+            STOP = 0,
+            EFFORT = 6,
+            VELOCITY = 2,
+            POSITION = 1
         };
 
         enum DRIVER_STATE
@@ -146,33 +148,33 @@ namespace soem_slave_modules
         //// MODULE IMPLEMENTATION
         const std::string __logger_name = "soem_slave_modules/trinamic_tmcm1610";
 
-        COMMAND_MODE command_mode = NONE;
+        COMMAND_MODE command_mode = COMMAND_MODE::STOP;
         DRIVER_STATE driver_state = STARTUP;
 
         // TODO(bitmeal): handle gripper
         std::string command_mode_to_claim(COMMAND_MODE command_mode) const
         {
-            if (command_mode == POSITION)
+            if (command_mode == COMMAND_MODE::POSITION)
                 return "joint/position";
-            if (command_mode == VELOCITY)
+            if (command_mode == COMMAND_MODE::VELOCITY)
                 return "joint/velocity";
-            if (command_mode == EFFORT)
+            if (command_mode == COMMAND_MODE::EFFORT)
                 return "joint/effort";
 
-            return "<none>";
+            return "stop";
         };
 
         // TODO(bitmeal): handle gripper
         COMMAND_MODE claim_to_command_mode(const std::string &claim) const
         {
             if (claim == "joint/position")
-                return POSITION;
+                return COMMAND_MODE::POSITION;
             if (claim == "joint/velocity")
-                return VELOCITY;
+                return COMMAND_MODE::VELOCITY;
             if (claim == "joint/effort")
-                return EFFORT;
+                return COMMAND_MODE::EFFORT;
 
-            return NONE;
+            return COMMAND_MODE::STOP;
         };
 
         constexpr static uint64_t vendor_id = 0x0286;
@@ -186,11 +188,200 @@ namespace soem_slave_modules
         std::vector<double> state_interfaces;
         std::vector<double> command_interfaces;
 
+        // DRIVER STATE MACHINE (not module; only HW interaction handling)
+#define hfsmS(s) struct TrinamicTMCM1610::s
+#define hfsmS_t(s) struct s : FSM::State
+
+        // states forward declacration
+        struct OffStop;
+        struct MotionC;
+        struct Initialize;
+        struct Stop;
+        struct Effort;
+        struct Velocity;
+        struct Position;
+        struct ConfigureC;
+        struct ReadFW;
+        struct ReadEncoderTicks;
+        struct ResetTimeout;
+
+        // state machine events
+        struct fsmEvent_Read
+        {
+        };
+        struct fsmEvent_Write
+        {
+        };
+        struct fsmEvent_MBX_Msg
+        {
+            MbxReceive_t msg;
+        };
+
+        // machine context config
+        using FSM_t = hfsm2::MachineT<hfsm2::Config::ContextT<TrinamicTMCM1610 &>>;
+
+        // orthogonals: handling PDO write and MBX simultaneously
+        using FSM_Ortho_Config =
+            FSM_t::OrthogonalPeers<
+                hfsmS(OffStop),
+                FSM_t::Composite<hfsmS(ConfigureC),
+                                 hfsmS(ReadFW),
+                                 hfsmS(ReadEncoderTicks)>>;
+
+        using FSM_Ortho_Motion =
+            FSM_t::OrthogonalPeers<
+                FSM_t::Composite<hfsmS(MotionC),
+                                 hfsmS(Initialize),
+                                 hfsmS(Stop),
+                                 hfsmS(Effort),
+                                 hfsmS(Velocity),
+                                 hfsmS(Position)>,
+                hfsmS(ResetTimeout)>;
+
+        // machine
+        using FSM = FSM_t::
+            PeerRoot<
+                FSM_Ortho_Config,
+                FSM_Ortho_Motion>;
+
+        // states implementation
+        hfsmS_t(OffStop)
+        {
+            void enter(Control & control)
+            {
+                RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM entering: %s", "OffStop");
+            };
+
+            void react(const fsmEvent_Write &, Control &control)
+            {
+                RxPDO_t RxPDO_map;
+
+                RxPDO_map.mode = (uint8_t)COMMAND_MODE::STOP;
+                RxPDO_map.setpoint = 0;
+
+                soem_driver::buffer RxPDO_map_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&RxPDO_map), sizeof(RxPDO_map)};
+                std::copy(RxPDO_map_buffer.begin(), RxPDO_map_buffer.end(), control.context().RxPDO.begin());
+            };
+
+            // ignore other events
+            using FSM::State::react;
+        };
+
+        // TODO
+        hfsmS_t(MotionC){};
+        
+        hfsmS_t(Stop)
+        {
+            void enter(Control & control)
+            {
+                RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM [Motion] entering: %s", "Stop");
+            };
+
+            void react(const fsmEvent_Write &, Control &control)
+            {
+                RxPDO_t RxPDO_map;
+
+                RxPDO_map.mode = (uint8_t)COMMAND_MODE::STOP;
+                RxPDO_map.setpoint = 0;
+
+                soem_driver::buffer RxPDO_map_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&RxPDO_map), sizeof(RxPDO_map)};
+                std::copy(RxPDO_map_buffer.begin(), RxPDO_map_buffer.end(), control.context().RxPDO.begin());
+            };
+
+            // ignore other events
+            using FSM::State::react;
+        };
+        hfsmS_t(Effort)
+        {
+            void enter(Control & control)
+            {
+                RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM [Motion] entering: %s", "Effort");
+            };
+
+            void react(const fsmEvent_Write &, Control &control)
+            {
+                RxPDO_t RxPDO_map;
+
+                RxPDO_map.mode = (uint8_t)COMMAND_MODE::EFFORT;
+                // torque_constant [Nm/A]
+                // setpoint [mA]
+                // command_interface [Nm]
+                // setpoint = command_interface / torque_constant * 1000
+                RxPDO_map.setpoint = control.context().command_interfaces[2] / control.context().torque_constant * 1000;
+
+                soem_driver::buffer RxPDO_map_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&RxPDO_map), sizeof(RxPDO_map)};
+                std::copy(RxPDO_map_buffer.begin(), RxPDO_map_buffer.end(), control.context().RxPDO.begin());
+            };
+
+            // ignore other events
+            using FSM::State::react;
+        };
+        hfsmS_t(Velocity)
+        {
+            void enter(Control & control)
+            {
+                RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM [Motion] entering: %s", "Velocity");
+            };
+
+            void react(const fsmEvent_Write &, Control &control)
+            {
+                RxPDO_t RxPDO_map;
+
+                RxPDO_map.mode = (uint8_t)COMMAND_MODE::VELOCITY;
+                // setpoint [rpm]|[1/min] (motor spindle)
+                // command_interface [rad/s]
+                // setpoint = command_interface * 60 / ( 2 * PI )
+                RxPDO_map.setpoint = control.context().command_interfaces[1] * 60 / (2 * std::numbers::pi);
+
+                soem_driver::buffer RxPDO_map_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&RxPDO_map), sizeof(RxPDO_map)};
+                std::copy(RxPDO_map_buffer.begin(), RxPDO_map_buffer.end(), control.context().RxPDO.begin());
+            };
+
+            // ignore other events
+            using FSM::State::react;
+        };
+        hfsmS_t(Position)
+        {
+            void enter(Control & control)
+            {
+                RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM [Motion] entering: %s", "Position");
+            };
+
+            void react(const fsmEvent_Write &, Control &control)
+            {
+                RxPDO_t RxPDO_map;
+
+                RxPDO_map.mode = (uint8_t)COMMAND_MODE::POSITION;
+                // setpoint [ticks] (encoder ticks)
+                // command_interface [rad]
+                // setpoint = command_interface * encoder_ticks / ( 2 * PI )
+                RxPDO_map.setpoint = control.context().command_interfaces[0] * control.context().encoder_ticks / (2 * std::numbers::pi);
+
+                soem_driver::buffer RxPDO_map_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&RxPDO_map), sizeof(RxPDO_map)};
+                std::copy(RxPDO_map_buffer.begin(), RxPDO_map_buffer.end(), control.context().RxPDO.begin());
+            };
+
+            // ignore other events
+            using FSM::State::react;
+        };
+
+        // TODO
+        hfsmS_t(Initialize){};
+        hfsmS_t(ConfigureC){};
+        hfsmS_t(ReadFW){};
+        hfsmS_t(ReadEncoderTicks){};
+        hfsmS_t(ResetTimeout){};
+
+        // instance
+        std::unique_ptr<FSM::Instance> fsm;
+
+#undef hfsmS_t
+#undef hfsmS
+
+        // SOEM MODULE IMPLEMENTATION
         bool init(std::unordered_map<std::string, std::string> /* parameters */) override
         {
             RCLCPP_INFO(rclcpp::get_logger(__logger_name), "trinamic_tmcm1610 instantiated");
-
-            // fetch_mailbox = true;
 
             return true;
         }
@@ -269,6 +460,8 @@ namespace soem_slave_modules
                 RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Module configured for gripper");
             }
 
+            fsm = std::make_unique<FSM::Instance>(*this);
+
             return true;
         };
 
@@ -316,10 +509,10 @@ namespace soem_slave_modules
 
             COMMAND_MODE next_command_mode = command_mode;
 
-            // set command mode to none, if in stop interfaces/claims
+            // set command mode to stop, if in stop interfaces/claims
             if (std::find(stop_interfaces.begin(), stop_interfaces.end(), command_mode_to_claim(next_command_mode)) != stop_interfaces.end())
             {
-                next_command_mode = NONE;
+                next_command_mode = COMMAND_MODE::STOP;
             }
 
             // apply requested start interfaces/claims to next_command_mode
@@ -328,7 +521,7 @@ namespace soem_slave_modules
                 auto start_mode = claim_to_command_mode(start_interface);
                 if (
                     start_mode == next_command_mode ||
-                    next_command_mode == NONE)
+                    next_command_mode == COMMAND_MODE::STOP)
                 {
                     next_command_mode = start_mode;
                 }
@@ -353,10 +546,10 @@ namespace soem_slave_modules
 
             COMMAND_MODE next_command_mode = command_mode;
 
-            // set command mode to none, if in stop interfaces/claims
+            // set command mode to stop, if in stop interfaces/claims
             if (std::find(stop_interfaces.begin(), stop_interfaces.end(), command_mode_to_claim(next_command_mode)) != stop_interfaces.end())
             {
-                next_command_mode = NONE;
+                next_command_mode = COMMAND_MODE::STOP;
             }
 
             // apply requested start interfaces/claims to next_command_mode
@@ -365,7 +558,7 @@ namespace soem_slave_modules
                 auto start_mode = claim_to_command_mode(start_interface);
                 if (
                     start_mode == next_command_mode ||
-                    next_command_mode == NONE)
+                    next_command_mode == COMMAND_MODE::STOP)
                 {
                     next_command_mode = start_mode;
                 }
@@ -414,6 +607,7 @@ namespace soem_slave_modules
             builder.add("I2T_EXCEEDED", (bool)((uint32_t)EC_StatusFlags::I2T_EXCEEDED & pdo_status));
 
             builder.add("encoder_ticks", encoder_ticks);
+            builder.add("torque_constant", torque_constant);
 
             return builder;
         };
@@ -436,7 +630,6 @@ namespace soem_slave_modules
                 )
                 {
                     encoder_ticks = from_big_endian(mbx_msg.value);
-                    // fetch_mailbox = false;
                 } });
 
             // RCLCPP_INFO(rclcpp::get_logger(__logger_name), "trinamic_tmcm1610 - call to: %s", __FUNCTION__);
@@ -449,10 +642,19 @@ namespace soem_slave_modules
             soem_driver::buffer TxPDO_map_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&TxPDO_map), sizeof(TxPDO_map)};
             std::copy(TxPDO.begin(), TxPDO.end(), TxPDO_map_buffer.begin());
 
-            // TODO(bitmeal): convert to actual required units
-            state_interfaces[0] = TxPDO_map.position_ticks;
-            state_interfaces[1] = TxPDO_map.vel_rpm;
-            state_interfaces[2] = TxPDO_map.current_ma;
+            // position_ticks [ticks] (encoder ticks)
+            // state_interface [rad]
+            // state_interface = position_ticks * 2 * PI  / encoder_ticks
+            state_interfaces[0] = TxPDO_map.position_ticks * 2 * std::numbers::pi / encoder_ticks;
+            // vel_rpm [rpm]|[1/min] (motor spindle)
+            // state_interface [rad/s]
+            // state_interface = vel_rpm * 2 * PI / 60
+            state_interfaces[1] = TxPDO_map.vel_rpm * 2 * std::numbers::pi / 60;
+            // torque_constant [Nm/A]
+            // current_ma [mA]
+            // state_interface [Nm]
+            // state_interface = current_ma * torque_constant / 1000 
+            state_interfaces[2] = TxPDO_map.current_ma * torque_constant / 1000;
 
             // TODO(bitmeal): read gripper position if has gripper
 
