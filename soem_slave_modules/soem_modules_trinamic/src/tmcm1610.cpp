@@ -127,13 +127,22 @@ namespace soem_slave_modules
         } __attribute__((__packed__));
         static_assert(sizeof(MbxReceive_t) == 8);
 
+        struct Version_t
+        {
+            int major;
+            int minor;
+        };
+
         // state symbols
         enum class COMMAND_MODE : uint8_t
         {
             STOP = 0,
             EFFORT = 6,
             VELOCITY = 2,
-            POSITION = 1
+            POSITION = 1,
+            INITIALIZE = 7,
+            SET_REFERENCE = 4,
+            NO_MORE_ACTION = 3
         };
 
         enum DRIVER_STATE
@@ -161,7 +170,7 @@ namespace soem_slave_modules
             if (command_mode == COMMAND_MODE::EFFORT)
                 return "joint/effort";
 
-            return "stop";
+            return "<none>";
         };
 
         // TODO(bitmeal): handle gripper
@@ -181,33 +190,40 @@ namespace soem_slave_modules
         constexpr static uint64_t product_code = 0x0070;
 
         bool has_gripper = false;
-        // double gear_ratio = 0.0;
+
+        Version_t firmware_version;
+        uint16_t module_type;
         uint32_t encoder_ticks = 0;
         double torque_constant = .0;
+        double homing_current = .0;
 
         std::vector<double> state_interfaces;
         std::vector<double> command_interfaces;
 
         // DRIVER STATE MACHINE (not module; only HW interaction handling)
-#define hfsmS(s) struct TrinamicTMCM1610::s
+// #define hfsmS(s) struct TrinamicTMCM1610::s
+#define hfsmS(s) struct s
 #define hfsmS_t(s) struct s : FSM::State
 
         // states forward declacration
-        struct OffStop;
-        struct MotionC;
-        struct Initialize;
-        struct Stop;
-        struct Effort;
-        struct Velocity;
-        struct Position;
-        struct ConfigureC;
-        struct ReadFW;
-        struct ReadEncoderTicks;
-        struct ResetTimeout;
+        hfsmS(OnStop);
+        hfsmS(MotionC);
+        hfsmS(Initialize);
+        hfsmS(MotionRunC);
+        hfsmS(Stop);
+        hfsmS(Effort);
+        hfsmS(Velocity);
+        hfsmS(Position);
+        hfsmS(ConfigureC);
+        hfsmS(ReadFW);
+        hfsmS(ReadEncoderTicks);
+        hfsmS(ResetTimeout);
+        hfsmS(OffStop);
 
         // state machine events
         struct fsmEvent_Read
         {
+            TxPDO_t txpdo;
         };
         struct fsmEvent_Write
         {
@@ -223,36 +239,40 @@ namespace soem_slave_modules
         // orthogonals: handling PDO write and MBX simultaneously
         using FSM_Ortho_Config =
             FSM_t::OrthogonalPeers<
-                hfsmS(OffStop),
+                hfsmS(OnStop),
                 FSM_t::Composite<hfsmS(ConfigureC),
                                  hfsmS(ReadFW),
-                                 hfsmS(ReadEncoderTicks)>>;
+                                 hfsmS(ReadEncoderTicks),
+                                 hfsmS(ResetTimeout)>>;
 
-        using FSM_Ortho_Motion =
-            FSM_t::OrthogonalPeers<
-                FSM_t::Composite<hfsmS(MotionC),
-                                 hfsmS(Initialize),
-                                 hfsmS(Stop),
-                                 hfsmS(Effort),
-                                 hfsmS(Velocity),
-                                 hfsmS(Position)>,
-                hfsmS(ResetTimeout)>;
+        using FSM_Region_Motion_Run = FSM_t::Composite<hfsmS(MotionRunC),
+                                                       hfsmS(Stop),
+                                                       hfsmS(Effort),
+                                                       hfsmS(Velocity),
+                                                       hfsmS(Position)>;
+        using FSM_Motion =
+            FSM_t::Composite<hfsmS(MotionC),
+                             hfsmS(Initialize),
+                             FSM_Region_Motion_Run>;
+
+        // using FSM_Ortho_Motion =
+        //     FSM_t::OrthogonalPeers<
+        //         FSM_t::Composite<hfsmS(MotionC),
+        //                          hfsmS(Initialize),
+        //                          FSM_Region_Motion_Run>,
+        //         hfsmS(ResetTimeout)>;
 
         // machine
         using FSM = FSM_t::
             PeerRoot<
                 FSM_Ortho_Config,
-                FSM_Ortho_Motion>;
+                FSM_Motion,
+                hfsmS(OffStop)>;
 
         // states implementation
-        hfsmS_t(OffStop)
+        hfsmS_t(Stop_t)
         {
-            void enter(Control & control)
-            {
-                RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM entering: %s", "OffStop");
-            };
-
-            void react(const fsmEvent_Write &, Control &control)
+            void react(const fsmEvent_Write &, EventControl &control)
             {
                 RxPDO_t RxPDO_map;
 
@@ -263,34 +283,287 @@ namespace soem_slave_modules
                 std::copy(RxPDO_map_buffer.begin(), RxPDO_map_buffer.end(), control.context().RxPDO.begin());
             };
 
+            // // use empty update method
+            // using FSM::State::update;
             // ignore other events
             using FSM::State::react;
         };
 
-        // TODO
-        hfsmS_t(MotionC){};
-        
-        hfsmS_t(Stop)
+        struct OnStop : Stop_t
+        {
+            void enter(Control &control)
+            {
+                RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM entering: %s", "OnStop");
+            };
+        };
+
+        hfsmS_t(ConfigureC)
+        {
+            void enter(PlanControl & control)
+            {
+                RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM [Configuration] entering: %s", "Configuration Region");
+
+                auto plan = control.plan();
+                plan.change<ReadFW, ReadEncoderTicks>();
+                plan.change<ReadEncoderTicks, ResetTimeout>();
+            };
+
+            void planSucceeded(FullControl & control)
+            {
+                RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM [Configuration] success");
+                // control.changeTo<FSM_Ortho_Motion>();
+                control.changeTo<MotionC>();
+            };
+
+            void planFailed(FullControl & control)
+            {
+                control.changeTo<OffStop>();
+            };
+
+            // // use empty update method
+            // using FSM::State::update;
+            // // ignore events
+            // using FSM::State::react;
+        };
+
+        hfsmS_t(ReadFW)
         {
             void enter(Control & control)
+            {
+                RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM [Configuration] entering: %s", "Read Firmware Version");
+                RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Requesting Firmware Version from Hardware; Sending MBX Request");
+
+                MbxSend_t mbx_get_firmware_version{
+                    .module_address = (uint8_t)MBX_TMCLModuleAddress::DRIVE,
+                    .command = (uint8_t)TMCL::Command::FIRMWARE_VERSION,
+                    .parameter = 1, // binary format
+                    .motor_bank = 0,
+                    .value = 0 // ignored on FIRMWARE_VERSION
+                };
+                soem_driver::buffer mbx_get_firmware_version_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&mbx_get_firmware_version), sizeof(mbx_get_firmware_version)};
+                control.context().mbx_enqueue_send({mbx_get_firmware_version_buffer.begin(), mbx_get_firmware_version_buffer.end()}, true, true);
+            };
+
+            void react(const fsmEvent_MBX_Msg &msg_event, EventControl &control)
+            {
+                // act on message
+                if (
+                    msg_event.msg.status == (uint8_t)TMCL::Status::SUCCESS &&
+                    msg_event.msg.module_address == (uint8_t)MBX_TMCLModuleAddress::DRIVE &&
+                    msg_event.msg.command == (uint8_t)TMCL::Command::FIRMWARE_VERSION)
+                {
+                    // uint16_t module_type = from_big_endian(*reinterpret_cast<const uint16_t *>(&msg_event.msg.value));
+                    uint16_t module_type = from_big_endian((uint16_t)msg_event.msg.value);
+                    RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Got Module type from Hardware: %hu", module_type);
+
+                    // uint16_t fw_version = from_big_endian(*reinterpret_cast<const uint16_t *>(&msg_event.msg.value));
+                    uint16_t fw_version_major = (uint8_t)(msg_event.msg.value >> 16);
+                    uint16_t fw_version_minor = (uint8_t)(msg_event.msg.value >> 24);
+                    RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Got Firmware Version from Hardware: %u.%u", fw_version_major, fw_version_minor);
+
+                    control.context().firmware_version = {fw_version_major, fw_version_minor};
+                    control.context().module_type = module_type;
+
+                    // next plan step
+                    control.succeed();
+                }
+                else
+                {
+                    control.fail();
+                }
+            };
+
+            // // use empty update method
+            // using FSM::State::update;
+            // ignore other events
+            using FSM::State::react;
+        };
+
+        hfsmS_t(ReadEncoderTicks)
+        {
+            void enter(Control & control)
+            {
+                RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM [Configuration] entering: %s", "Read Encoder Ticks");
+                RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Requesting Encoder Ticks from Hardware; Sending MBX Request");
+
+                MbxSend_t mbx_get_encoder_ticks{
+                    .module_address = (uint8_t)MBX_TMCLModuleAddress::DRIVE,
+                    .command = (uint8_t)TMCL::Command::GAP,
+                    .parameter = 250, // encoder ticks per revolution
+                    .motor_bank = 0,
+                    .value = 0 // ignored on GAP
+                };
+                soem_driver::buffer mbx_get_encoder_ticks_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&mbx_get_encoder_ticks), sizeof(mbx_get_encoder_ticks)};
+                control.context().mbx_enqueue_send({mbx_get_encoder_ticks_buffer.begin(), mbx_get_encoder_ticks_buffer.end()}, true, true);
+            };
+
+            void react(const fsmEvent_MBX_Msg &msg_event, EventControl &control)
+            {
+                // act on message
+                if (
+                    msg_event.msg.status == (uint8_t)TMCL::Status::SUCCESS &&
+                    msg_event.msg.module_address == (uint8_t)MBX_TMCLModuleAddress::DRIVE &&
+                    msg_event.msg.command == (uint8_t)TMCL::Command::GAP)
+                {
+                    uint32_t encoder_ticks = from_big_endian(msg_event.msg.value);
+                    RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Got Encoder Ticks from Hardware: %u", encoder_ticks);
+                    control.context().encoder_ticks = encoder_ticks;
+
+                    // next plan step
+                    control.succeed();
+                }
+                else
+                {
+                    control.fail();
+                }
+            };
+
+            // // use empty update method
+            // using FSM::State::update;
+            // ignore other events
+            using FSM::State::react;
+        };
+
+        hfsmS_t(ResetTimeout)
+        {
+            void enter(Control & control)
+            {
+                RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM [Configuration] entering: %s", "Reset Timeout Watcher");
+                RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Requesting EtherCAT timeout reset from Hardware; Sending MBX Request");
+
+                MbxSend_t mbx_reset_timeout{
+                    .module_address = (uint8_t)MBX_TMCLModuleAddress::DRIVE,
+                    .command = (uint8_t)TMCL::Command::SAP,
+                    .parameter = 158, // clear EtherCAT timeout flag
+                    .motor_bank = 0,
+                    .value = 0 // ignored
+                };
+                soem_driver::buffer mbx_reset_timeout_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&mbx_reset_timeout), sizeof(mbx_reset_timeout)};
+                control.context().mbx_enqueue_send({mbx_reset_timeout_buffer.begin(), mbx_reset_timeout_buffer.end()}, false);
+            };
+
+            void react(const fsmEvent_Read &txpdo_read_event, EventControl &control)
+            {
+                if (!(bool)((uint32_t)EC_StatusFlags::ETHERCAT_TIMEOUT & txpdo_read_event.txpdo.status_flags))
+                {
+                    RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Reset EtherCAT timeout on Hardware");
+                    control.succeed();
+                }
+            };
+
+            // // use empty update method
+            // using FSM::State::update;
+            // ignore other events
+            using FSM::State::react;
+        };
+
+        // plans from initialization to cyclic motion execution region
+        hfsmS_t(MotionC)
+        {
+            void enter(PlanControl & control)
+            {
+                RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM [Motion] entering: %s", "Motion Region");
+
+                auto plan = control.plan();
+                plan.change<Initialize, MotionRunC>();
+            };
+
+            void planSucceeded(FullControl & control)
+            {
+                // should never reach
+                control.changeTo<OffStop>();
+            };
+
+            void planFailed(FullControl & control)
+            {
+                control.changeTo<OffStop>();
+            };
+
+            // // use empty update method
+            // using FSM::State::update;
+            // // ignore events
+            // using FSM::State::react;
+        };
+
+        hfsmS_t(Initialize)
+        {
+            void enter(Control & control)
+            {
+                RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM [Motion] entering: %s", "Initialize");
+            };
+
+            void react(const fsmEvent_Read &txpdo_read_event, EventControl &control)
+            {
+                if ((bool)((uint32_t)EC_StatusFlags::INITIALIZED & txpdo_read_event.txpdo.status_flags))
+                {
+                    RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Hardware initialized successfuly");
+                    control.succeed();
+                }
+            };
+
+            void react(const fsmEvent_Write &, EventControl &control)
+            {
+                RxPDO_t RxPDO_map;
+
+                if (control.context().firmware_version.major >= 2)
+                {
+                    RxPDO_map.mode = (uint8_t)COMMAND_MODE::VELOCITY;
+                    RxPDO_map.setpoint = 100;
+                }
+                else
+                {
+                    RxPDO_map.mode = (uint8_t)COMMAND_MODE::INITIALIZE;
+                    RxPDO_map.setpoint = 0;
+                }
+
+                soem_driver::buffer RxPDO_map_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&RxPDO_map), sizeof(RxPDO_map)};
+                std::copy(RxPDO_map_buffer.begin(), RxPDO_map_buffer.end(), control.context().RxPDO.begin());
+            };
+
+            // // use empty update method
+            // using FSM::State::update;
+            // ignore events
+            using FSM::State::react;
+        };
+
+        // cyclic motion execution region; switches state to current command mode on update() calls
+        hfsmS_t(MotionRunC)
+        {
+            void enter(Control & control)
+            {
+                RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM [Motion] entering: %s", "Motion Run Region");
+            };
+
+            void update(FullControl & control)
+            {
+                switch (control.context().command_mode)
+                {
+                case COMMAND_MODE::EFFORT:
+                    control.changeTo<Effort>();
+                    break;
+                case COMMAND_MODE::VELOCITY:
+                    control.changeTo<Velocity>();
+                    break;
+                case COMMAND_MODE::POSITION:
+                    control.changeTo<Position>();
+                    break;
+                default:
+                    control.changeTo<Stop>();
+                }
+            };
+
+            // // ignore events
+            // using FSM::State::react;
+        };
+
+        struct Stop : Stop_t
+        {
+            void enter(Control &control)
             {
                 RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM [Motion] entering: %s", "Stop");
             };
-
-            void react(const fsmEvent_Write &, Control &control)
-            {
-                RxPDO_t RxPDO_map;
-
-                RxPDO_map.mode = (uint8_t)COMMAND_MODE::STOP;
-                RxPDO_map.setpoint = 0;
-
-                soem_driver::buffer RxPDO_map_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&RxPDO_map), sizeof(RxPDO_map)};
-                std::copy(RxPDO_map_buffer.begin(), RxPDO_map_buffer.end(), control.context().RxPDO.begin());
-            };
-
-            // ignore other events
-            using FSM::State::react;
         };
+
         hfsmS_t(Effort)
         {
             void enter(Control & control)
@@ -298,7 +571,7 @@ namespace soem_slave_modules
                 RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM [Motion] entering: %s", "Effort");
             };
 
-            void react(const fsmEvent_Write &, Control &control)
+            void react(const fsmEvent_Write &, EventControl &control)
             {
                 RxPDO_t RxPDO_map;
 
@@ -313,9 +586,12 @@ namespace soem_slave_modules
                 std::copy(RxPDO_map_buffer.begin(), RxPDO_map_buffer.end(), control.context().RxPDO.begin());
             };
 
+            // // use empty update method
+            // using FSM::State::update;
             // ignore other events
             using FSM::State::react;
         };
+
         hfsmS_t(Velocity)
         {
             void enter(Control & control)
@@ -323,7 +599,7 @@ namespace soem_slave_modules
                 RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM [Motion] entering: %s", "Velocity");
             };
 
-            void react(const fsmEvent_Write &, Control &control)
+            void react(const fsmEvent_Write &, EventControl &control)
             {
                 RxPDO_t RxPDO_map;
 
@@ -337,9 +613,12 @@ namespace soem_slave_modules
                 std::copy(RxPDO_map_buffer.begin(), RxPDO_map_buffer.end(), control.context().RxPDO.begin());
             };
 
+            // // use empty update method
+            // using FSM::State::update;
             // ignore other events
             using FSM::State::react;
         };
+
         hfsmS_t(Position)
         {
             void enter(Control & control)
@@ -347,7 +626,7 @@ namespace soem_slave_modules
                 RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM [Motion] entering: %s", "Position");
             };
 
-            void react(const fsmEvent_Write &, Control &control)
+            void react(const fsmEvent_Write &, EventControl &control)
             {
                 RxPDO_t RxPDO_map;
 
@@ -361,16 +640,19 @@ namespace soem_slave_modules
                 std::copy(RxPDO_map_buffer.begin(), RxPDO_map_buffer.end(), control.context().RxPDO.begin());
             };
 
+            // // use empty update method
+            // using FSM::State::update;
             // ignore other events
             using FSM::State::react;
         };
 
-        // TODO
-        hfsmS_t(Initialize){};
-        hfsmS_t(ConfigureC){};
-        hfsmS_t(ReadFW){};
-        hfsmS_t(ReadEncoderTicks){};
-        hfsmS_t(ResetTimeout){};
+        struct OffStop : Stop_t
+        {
+            void enter(Control &control)
+            {
+                RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM [Motion] entering: %s", "OffStop");
+            };
+        };
 
         // instance
         std::unique_ptr<FSM::Instance> fsm;
@@ -422,6 +704,8 @@ namespace soem_slave_modules
                 return false;
             }
 
+            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Vendor ID(0x%016lx), Product Code(0x%016lx), Product Revision(0x%016lx)", this->vendor_id, this->product_code, revision_number);
+
             if (parameters.find("gripper") != parameters.end())
             {
                 // read truthy value using yaml library
@@ -436,30 +720,29 @@ namespace soem_slave_modules
                 }
             }
 
-            // if (parameters.find("gear_ratio") == parameters.end())
-            // {
-            //     RCLCPP_ERROR(rclcpp::get_logger(__logger_name), "no <gear_ratio> parameter found!");
-            //     return false;
-            // }
-
             if (parameters.find("torque_constant") == parameters.end())
             {
                 RCLCPP_ERROR(rclcpp::get_logger(__logger_name), "no <torque_constant> parameter found!");
                 return false;
             }
-
             torque_constant = std::stod(parameters["torque_constant"]);
-            // gear_ratio = std::stod(parameters["gear_ratio"]);
-
-            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Configuration OK! Vendor ID(0x%016lx), Product Code(0x%016lx), Product Revision(0x%016lx)", this->vendor_id, this->product_code, revision_number);
             RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Torque constant: %f [Nm/A]", torque_constant);
-            // RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Gear ratio: %f/1", gear_ratio);
+
+            if (parameters.find("homing_current_limit") != parameters.end())
+            {
+                homing_current = std::stod(parameters["homing_current_limit"]);
+                if(homing_current != .0)
+                {
+                    RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Axis Homing configured; Current Limit abs: %f [A]; Direction: %s", std::fabs(homing_current), homing_current > 0 ? "pos(+)" : "neg(-)");
+                }
+            }
 
             if (has_gripper)
             {
                 RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Module configured for gripper");
             }
 
+            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Configuration OK!");
             fsm = std::make_unique<FSM::Instance>(*this);
 
             return true;
@@ -608,6 +891,8 @@ namespace soem_slave_modules
 
             builder.add("encoder_ticks", encoder_ticks);
             builder.add("torque_constant", torque_constant);
+            builder.add("module_type", module_type);
+            builder.addf("firmware_version", "%u.%u", firmware_version.major, firmware_version.minor);
 
             return builder;
         };
@@ -615,29 +900,7 @@ namespace soem_slave_modules
         // make data from TxPDO available in state interface
         hardware_interface::return_type read(const rclcpp::Time &, const rclcpp::Duration &) override
         {
-            mbx_consume_incoming([&](auto mbx_buffer)
-                                 {
-                // "deserialize" mailbox message
-                MbxReceive_t mbx_msg;
-                soem_driver::buffer mbx_msg_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&mbx_msg), sizeof(mbx_msg)};
-                std::copy(mbx_buffer.begin(), mbx_buffer.end(), mbx_msg_buffer.begin());
-
-                // act on message
-                if(
-                    mbx_msg.status == (uint8_t)TMCL::Status::SUCCESS &&
-                    mbx_msg.module_address == (uint8_t)MBX_TMCLModuleAddress::DRIVE &&
-                    mbx_msg.command == (uint8_t)TMCL::Command::GAP
-                )
-                {
-                    encoder_ticks = from_big_endian(mbx_msg.value);
-                } });
-
-            // RCLCPP_INFO(rclcpp::get_logger(__logger_name), "trinamic_tmcm1610 - call to: %s", __FUNCTION__);
-
-            // TODO(bitmeal): state machine to read config and home axes
-            // GAP 250: Encoder steps per rotation
-            // GAP 251: Encoder direction (invert movement direction of axis)
-
+            // read process data from slave
             TxPDO_t TxPDO_map;
             soem_driver::buffer TxPDO_map_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&TxPDO_map), sizeof(TxPDO_map)};
             std::copy(TxPDO.begin(), TxPDO.end(), TxPDO_map_buffer.begin());
@@ -653,10 +916,24 @@ namespace soem_slave_modules
             // torque_constant [Nm/A]
             // current_ma [mA]
             // state_interface [Nm]
-            // state_interface = current_ma * torque_constant / 1000 
+            // state_interface = current_ma * torque_constant / 1000
             state_interfaces[2] = TxPDO_map.current_ma * torque_constant / 1000;
 
             // TODO(bitmeal): read gripper position if has gripper
+
+            // make state machine react to hardware state & update state machine
+            fsm->react(fsmEvent_Read{TxPDO_map});
+
+            mbx_consume_incoming([&](auto mbx_buffer)
+                                 {
+                                     // "deserialize" mailbox message
+                                     MbxReceive_t mbx_msg;
+                                     soem_driver::buffer mbx_msg_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&mbx_msg), sizeof(mbx_msg)};
+                                     std::copy(mbx_buffer.begin(), mbx_buffer.end(), mbx_msg_buffer.begin());
+                                 
+                                    fsm->react(fsmEvent_MBX_Msg{mbx_msg}); });
+
+            fsm->update();
 
             // make diagnostics info available
             diagnostics_status_queue.push(std::move(build_diagnostics(TxPDO_map.status_flags)));
@@ -667,20 +944,9 @@ namespace soem_slave_modules
         // write data from command interface to RxPDO
         hardware_interface::return_type write(const rclcpp::Time &, const rclcpp::Duration &) override
         {
-            static bool req_encoder_ticks = true;
-            if (req_encoder_ticks)
-            {
-                MbxSend_t mbx_get_encoder_ticks{
-                    .module_address = (uint8_t)MBX_TMCLModuleAddress::DRIVE,
-                    .command = (uint8_t)TMCL::Command::GAP,
-                    .parameter = 250, // encoder ticks per revolution
-                    .motor_bank = 0,
-                    .value = 0 // ignored on GAP
-                };
-                soem_driver::buffer mbx_get_encoder_ticks_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&mbx_get_encoder_ticks), sizeof(mbx_get_encoder_ticks)};
-                mbx_enqueue_send({mbx_get_encoder_ticks_buffer.begin(), mbx_get_encoder_ticks_buffer.end()}, true, true);
-                req_encoder_ticks = false;
-            }
+            // update state machine and react to write event
+            fsm->update();
+            fsm->react(fsmEvent_Write{});
 
             return hardware_interface::return_type::OK;
         };

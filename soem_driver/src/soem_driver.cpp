@@ -579,10 +579,11 @@ namespace soem_driver
             initialized_slaves.push_back(slave_it->second);
 
             RCLCPP_INFO(rclcpp::get_logger(__logger_name), "successfully configured slave %s", slave_info.name.c_str());
-
-            run_diagnostics_publisher(diagnostics_cycle_ms);
         }
 
+        // bring up diagnostics publisher before bus start, to caputure early state
+        run_diagnostics_publisher(diagnostics_cycle_ms);
+        
         // start EtherCAT bus and setup data access structures
         master.start_bus();
 
