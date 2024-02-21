@@ -201,7 +201,6 @@ namespace soem_slave_modules
         std::vector<double> command_interfaces;
 
         // DRIVER STATE MACHINE (not module; only HW interaction handling)
-// #define hfsmS(s) struct TrinamicTMCM1610::s
 #define hfsmS(s) struct s
 #define hfsmS_t(s) struct s : FSM::State
 
@@ -209,6 +208,7 @@ namespace soem_slave_modules
         hfsmS(OnStop);
         hfsmS(MotionC);
         hfsmS(Initialize);
+        hfsmS(HomeAxis);
         hfsmS(MotionRunC);
         hfsmS(Stop);
         hfsmS(Effort);
@@ -253,6 +253,7 @@ namespace soem_slave_modules
         using FSM_Motion =
             FSM_t::Composite<hfsmS(MotionC),
                              hfsmS(Initialize),
+                             hfsmS(HomeAxis),
                              FSM_Region_Motion_Run>;
 
         // using FSM_Ortho_Motion =
@@ -465,7 +466,15 @@ namespace soem_slave_modules
                 RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM [Motion] entering: %s", "Motion Region");
 
                 auto plan = control.plan();
-                plan.change<Initialize, MotionRunC>();
+                if (control.context().homing_current != .0)
+                { // execute homing procedure
+                    plan.change<Initialize, HomeAxis>();
+                    plan.change<HomeAxis, MotionRunC>();
+                }
+                else
+                { // no homing
+                    plan.change<Initialize, MotionRunC>();
+                }
             };
 
             void planSucceeded(FullControl & control)
@@ -515,6 +524,39 @@ namespace soem_slave_modules
                     RxPDO_map.mode = (uint8_t)COMMAND_MODE::INITIALIZE;
                     RxPDO_map.setpoint = 0;
                 }
+
+                soem_driver::buffer RxPDO_map_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&RxPDO_map), sizeof(RxPDO_map)};
+                std::copy(RxPDO_map_buffer.begin(), RxPDO_map_buffer.end(), control.context().RxPDO.begin());
+            };
+
+            // // use empty update method
+            // using FSM::State::update;
+            // ignore events
+            using FSM::State::react;
+        };
+
+        hfsmS_t(HomeAxis)
+        {
+            void enter(Control & control)
+            {
+                RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM [Motion] entering: %s", "Home Axis");
+            };
+
+            void react(const fsmEvent_Read &txpdo_read_event, EventControl &control)
+            {
+                if (std::fabs(txpdo_read_event.txpdo.current_ma) >= std::fabs(control.context().homing_current) * 1000.)
+                {
+                    RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Homed Axis successfuly");
+                    control.succeed();
+                }
+            };
+
+            void react(const fsmEvent_Write &, EventControl &control)
+            {
+                RxPDO_t RxPDO_map;
+
+                RxPDO_map.mode = (uint8_t)COMMAND_MODE::VELOCITY;
+                RxPDO_map.setpoint = (int32_t)std::copysign(100, control.context().homing_current);
 
                 soem_driver::buffer RxPDO_map_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&RxPDO_map), sizeof(RxPDO_map)};
                 std::copy(RxPDO_map_buffer.begin(), RxPDO_map_buffer.end(), control.context().RxPDO.begin());
@@ -731,7 +773,7 @@ namespace soem_slave_modules
             if (parameters.find("homing_current_limit") != parameters.end())
             {
                 homing_current = std::stod(parameters["homing_current_limit"]);
-                if(homing_current != .0)
+                if (homing_current != .0)
                 {
                     RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Axis Homing configured; Current Limit abs: %f [A]; Direction: %s", std::fabs(homing_current), homing_current > 0 ? "pos(+)" : "neg(-)");
                 }
