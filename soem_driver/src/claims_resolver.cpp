@@ -80,8 +80,7 @@ namespace soem_driver
                             auto slave_if_it = slave_interfaces.find(slave);
                             if(slave_if_it != slave_interfaces.end())
                             {
-                                // bind both types of interfaces for readability
-                                auto& [slave_state_interfaces, slave_command_interfaces] = slave_if_it->second;
+                                auto& [slave_state_interfaces, _] = slave_if_it->second;
 
                                 auto& interfaces = slave_state_interfaces;
 
@@ -117,8 +116,8 @@ namespace soem_driver
                                         {
                                             auto alias_factory = AliasInterfaceFactory{interface};
                                             joint_mappend_interfaces.push_back(interface.get_interface_name());
-                                            joint_state_interfaces.emplace_back(
-                                                    alias_factory.makeInterface<hardware_interface::StateInterface>(joint, interface.get_interface_name())
+                                            joint_state_interfaces.emplace_back(std::move(
+                                                    alias_factory.makeInterface<hardware_interface::StateInterface>(joint, interface.get_interface_name()))
                                                 );
 
                                             RCLCPP_INFO(rclcpp::get_logger(__logger_name), "mapping state interface: %s/%s to %s/%s", joint.c_str(), interface.get_interface_name().c_str(), slave.c_str(), interface.get_name().c_str());
@@ -171,7 +170,7 @@ namespace soem_driver
         std::for_each(joint_claims.begin(), joint_claims.end(), [&](auto &&single_joints_claims)
                       {
                           auto joint_state_interfaces = resolve_state_interfaces_by_joint(single_joints_claims.first);
-                          state_interfaces.emplace(single_joints_claims.first, std::move(joint_state_interfaces)); });
+                          state_interfaces.emplace(std::make_pair(single_joints_claims.first, std::move(joint_state_interfaces))); });
 
         return state_interfaces;
     };
@@ -200,8 +199,7 @@ namespace soem_driver
                             auto slave_if_it = slave_interfaces.find(slave);
                             if(slave_if_it != slave_interfaces.end())
                             {
-                                // bind both types of interfaces for readability
-                                auto& [slave_state_interfaces, slave_command_interfaces] = slave_if_it->second;
+                                auto& [_, slave_command_interfaces] = slave_if_it->second;
 
                                 auto& interfaces = slave_command_interfaces;
 
@@ -237,8 +235,8 @@ namespace soem_driver
                                         {
                                             auto alias_factory = AliasInterfaceFactory{interface};
                                             joint_mappend_interfaces.push_back(interface.get_interface_name());
-                                            joint_command_interfaces.emplace_back(
-                                                        alias_factory.makeInterface<hardware_interface::CommandInterface>(joint, interface.get_interface_name())
+                                            joint_command_interfaces.emplace_back(std::move(
+                                                        alias_factory.makeInterface<hardware_interface::CommandInterface>(joint, interface.get_interface_name()))
                                                 );
 
                                             // store mapping for resolution in command mode changes
@@ -297,7 +295,7 @@ namespace soem_driver
                           auto [joint_command_interfaces, joint_command_interface_map] = resolve_command_interfaces_by_joint(single_joints_claims.first);
 
                           command_interface_map.insert(std::begin(joint_command_interface_map), std::end(joint_command_interface_map));
-                          command_interfaces.emplace(single_joints_claims.first, std::move(joint_command_interfaces)); });
+                          command_interfaces.emplace(std::make_pair(single_joints_claims.first, std::move(joint_command_interfaces))); });
 
         return command_interfaces;
     };

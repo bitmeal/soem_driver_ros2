@@ -15,7 +15,7 @@ TEST(TestSOEMMockModuleInterface, call_init)
   std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave> module;
   ASSERT_NO_THROW(module = loader.createSharedInstance("soem_slave_modules/soem_mock_module"));
 
-  ASSERT_NO_THROW(module->init({}));
+  ASSERT_NO_THROW(module->init("mock", {}));
 }
 
 TEST(TestSOEMMockModuleInterface, call_export_state_interfaces)

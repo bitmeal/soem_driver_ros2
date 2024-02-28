@@ -155,7 +155,7 @@ namespace soem_slave_modules
         };
 
         //// MODULE IMPLEMENTATION
-        const std::string __logger_name = "soem_slave_modules/trinamic_tmcm1610";
+        std::string __logger_name = "soem_slave_modules/trinamic_tmcm1610";
 
         COMMAND_MODE command_mode = COMMAND_MODE::STOP;
         DRIVER_STATE driver_state = STARTUP;
@@ -164,11 +164,11 @@ namespace soem_slave_modules
         std::string command_mode_to_claim(COMMAND_MODE command_mode) const
         {
             if (command_mode == COMMAND_MODE::POSITION)
-                return "joint/position";
+                return "drive/position";
             if (command_mode == COMMAND_MODE::VELOCITY)
-                return "joint/velocity";
+                return "drive/velocity";
             if (command_mode == COMMAND_MODE::EFFORT)
-                return "joint/effort";
+                return "drive/effort";
 
             return "<none>";
         };
@@ -176,11 +176,11 @@ namespace soem_slave_modules
         // TODO(bitmeal): handle gripper
         COMMAND_MODE claim_to_command_mode(const std::string &claim) const
         {
-            if (claim == "joint/position")
+            if (claim == "drive/position")
                 return COMMAND_MODE::POSITION;
-            if (claim == "joint/velocity")
+            if (claim == "drive/velocity")
                 return COMMAND_MODE::VELOCITY;
-            if (claim == "joint/effort")
+            if (claim == "drive/effort")
                 return COMMAND_MODE::EFFORT;
 
             return COMMAND_MODE::STOP;
@@ -209,6 +209,7 @@ namespace soem_slave_modules
         hfsmS(MotionC);
         hfsmS(Initialize);
         hfsmS(HomeAxis);
+        hfsmS(ZeroAxisPosition);
         hfsmS(MotionRunC);
         hfsmS(Stop);
         hfsmS(Effort);
@@ -254,6 +255,7 @@ namespace soem_slave_modules
             FSM_t::Composite<hfsmS(MotionC),
                              hfsmS(Initialize),
                              hfsmS(HomeAxis),
+                             hfsmS(ZeroAxisPosition),
                              FSM_Region_Motion_Run>;
 
         // using FSM_Ortho_Motion =
@@ -469,7 +471,8 @@ namespace soem_slave_modules
                 if (control.context().homing_current != .0)
                 { // execute homing procedure
                     plan.change<Initialize, HomeAxis>();
-                    plan.change<HomeAxis, MotionRunC>();
+                    plan.change<HomeAxis, ZeroAxisPosition>();
+                    plan.change<ZeroAxisPosition, MotionRunC>();
                 }
                 else
                 { // no homing
@@ -557,6 +560,40 @@ namespace soem_slave_modules
 
                 RxPDO_map.mode = (uint8_t)COMMAND_MODE::VELOCITY;
                 RxPDO_map.setpoint = (int32_t)std::copysign(100, control.context().homing_current);
+
+                soem_driver::buffer RxPDO_map_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&RxPDO_map), sizeof(RxPDO_map)};
+                std::copy(RxPDO_map_buffer.begin(), RxPDO_map_buffer.end(), control.context().RxPDO.begin());
+            };
+
+            // // use empty update method
+            // using FSM::State::update;
+            // ignore events
+            using FSM::State::react;
+        };
+
+        hfsmS_t(ZeroAxisPosition)
+        {
+            void enter(Control & control)
+            {
+                RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM [Motion] entering: %s", "Zero Axis Position");
+            };
+
+            void react(const fsmEvent_Read &txpdo_read_event, EventControl &control)
+            {
+                // account for small deviations from residual movements and don't require exact 0
+                if (std::fabs(txpdo_read_event.txpdo.position_ticks) < 2)
+                {
+                    RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Set Axis Position = 0 successfuly");
+                    control.succeed();
+                }
+            };
+
+            void react(const fsmEvent_Write &, EventControl &control)
+            {
+                RxPDO_t RxPDO_map;
+
+                RxPDO_map.mode = (uint8_t)COMMAND_MODE::SET_REFERENCE;
+                RxPDO_map.setpoint = 0;
 
                 soem_driver::buffer RxPDO_map_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&RxPDO_map), sizeof(RxPDO_map)};
                 std::copy(RxPDO_map_buffer.begin(), RxPDO_map_buffer.end(), control.context().RxPDO.begin());
@@ -703,9 +740,10 @@ namespace soem_slave_modules
 #undef hfsmS
 
         // SOEM MODULE IMPLEMENTATION
-        bool init(std::unordered_map<std::string, std::string> /* parameters */) override
+        bool init(const std::string& name, std::unordered_map<std::string, std::string> /* parameters */) override
         {
-            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "trinamic_tmcm1610 instantiated");
+            __logger_name += "<" + name + ">";
+            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "trinamic_tmcm1610 module driver instantiated");
 
             return true;
         }
@@ -714,9 +752,9 @@ namespace soem_slave_modules
         {
             state_interfaces.resize(4, NAN);
             return {
-                {"joint", "position", &state_interfaces[0]},
-                {"joint", "velocity", &state_interfaces[1]},
-                {"joint", "effort", &state_interfaces[2]},
+                {"drive", "position", &state_interfaces[0]},
+                {"drive", "velocity", &state_interfaces[1]},
+                {"drive", "effort", &state_interfaces[2]},
 
                 {"gripper", "position", &state_interfaces[3]}};
         };
@@ -724,9 +762,9 @@ namespace soem_slave_modules
         {
             command_interfaces.resize(4, NAN);
             return soem_driver::list_initialize_non_copyable_interface<hardware_interface::CommandInterface>(
-                {{"joint", "position", &command_interfaces[0]},
-                 {"joint", "velocity", &command_interfaces[1]},
-                 {"joint", "effort", &command_interfaces[2]},
+                {{"drive", "position", &command_interfaces[0]},
+                 {"drive", "velocity", &command_interfaces[1]},
+                 {"drive", "effort", &command_interfaces[2]},
 
                  {"gripper", "position", &command_interfaces[3]}});
         };

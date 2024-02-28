@@ -83,7 +83,8 @@ namespace soem_driver_slave_interface
         };
 
     public:
-        virtual bool init(std::unordered_map<std::string, std::string> /* parameters */) { return true; };
+        // name may be used to initialize logger name; parameters will later be passed to configure() again
+        virtual bool init(const std::string& /* name */, std::unordered_map<std::string, std::string> /* parameters */) { return true; };
 
         virtual std::vector<hardware_interface::StateInterface> export_state_interfaces() = 0;
         virtual std::vector<hardware_interface::CommandInterface> export_command_interfaces() = 0;

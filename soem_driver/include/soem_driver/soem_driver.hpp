@@ -91,10 +91,12 @@ namespace soem_driver
                 "transmission_interface", "transmission_interface::TransmissionLoader"};
 
         // map from: <slave name> --> {<state transmission instance>, <command transmission instance>}
-        std::unordered_map<std::string, std::pair<
+        std::unordered_map<std::string, std::tuple<
+                                            hardware_interface::TransmissionInfo,
                                             std::shared_ptr<transmission_interface::Transmission>,
                                             std::shared_ptr<transmission_interface::Transmission>>>
             transmissions;
+        std::unordered_map<std::string, std::string> transmission_command_interface_map;
         std::vector<double> transmission_state_values;
         std::vector<double> transmission_command_values;
 

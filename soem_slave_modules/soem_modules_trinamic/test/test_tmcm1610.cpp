@@ -15,7 +15,7 @@ TEST(TestSOEMModuleTMCM1610, load_plugin)
   std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave> module;
 
   ASSERT_NO_THROW(module = loader.createSharedInstance("soem_slave_modules/trinamic_tmcm1610"));
-  ASSERT_NO_THROW(module->init({}));
+  ASSERT_NO_THROW(module->init("trinamic_tmcm1610_test", {}));
 }
 
 TEST(TestSOEMModuleTMCM1610, call_init)
@@ -26,7 +26,7 @@ TEST(TestSOEMModuleTMCM1610, call_init)
   std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave> module;
   ASSERT_NO_THROW(module = loader.createSharedInstance("soem_slave_modules/trinamic_tmcm1610"));
 
-  ASSERT_NO_THROW(module->init({}));
+  ASSERT_NO_THROW(module->init("trinamic_tmcm1610_test", {}));
 }
 
 TEST(TestSOEMModuleTMCM1610, call_export_state_interfaces)
