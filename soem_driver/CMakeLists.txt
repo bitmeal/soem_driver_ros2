@@ -10,6 +10,7 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(hardware_interface REQUIRED)
+find_package(transmission_interface REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(yaml_cpp_vendor REQUIRED)
 find_package(rclcpp REQUIRED)
@@ -70,6 +71,7 @@ target_include_directories(claims_resolver PUBLIC
 
 ament_target_dependencies(claims_resolver
   hardware_interface
+  transmission_interface
   rclcpp
   soem_driver_slave_interface
   soem_driver_common
@@ -94,6 +96,7 @@ target_link_libraries(${PROJECT_NAME}
 
 ament_target_dependencies(${PROJECT_NAME}
   hardware_interface
+  transmission_interface
   pluginlib
   yaml_cpp_vendor
   rclcpp
@@ -168,6 +171,7 @@ ament_export_libraries(
 )
 ament_export_dependencies(
   hardware_interface
+  transmission_interface
   pluginlib
   rclcpp
   rclcpp_lifecycle

@@ -630,7 +630,10 @@ namespace soem_driver
                                                                return acc + (transmissions.find(name) != transmissions.end() ? interfaces.size() : 0);
                                                            });
         RCLCPP_INFO(rclcpp::get_logger(__logger_name), "reserving %zu state interface transmission variables", transmission_values_count);
-        transmission_state_values.reserve(transmission_values_count + 1);
+        
+        // allocate state values
+        transmission_state_values.resize(transmission_values_count, NAN);
+        auto transmission_state_values_iterator = transmission_state_values.begin();
 
         std::for_each(state_interfaces_by_joint.begin(), state_interfaces_by_joint.end(), [&](auto &&single_joints_state_interfaces)
                       {
@@ -658,7 +661,7 @@ namespace soem_driver
                                         return std::move(hardware_interface::StateInterface(
                                             transmission_info.joints[0].name,
                                             interface.get_interface_name(),
-                                            &transmission_state_values.back()
+                                            std::to_address(transmission_state_values_iterator)
                                         ));
                                     }
                                     );
@@ -688,6 +691,8 @@ namespace soem_driver
                                     );
                                 }
 
+                                // advance iterator for next transmission
+                                std::advance(transmission_state_values_iterator, 1);
                                 // add newly built interfaces to exports
                                 std::move(std::begin(transmission_state_interfaces), std::end(transmission_state_interfaces), std::back_inserter(state_interfaces));
                             }
@@ -696,6 +701,10 @@ namespace soem_driver
                                 // add interfaces to exports
                                 std::move(std::begin(interfaces), std::end(interfaces), std::back_inserter(state_interfaces));
                             } });
+
+        std::for_each(state_interfaces.begin(), state_interfaces.end(), [&](auto& state_iface){
+            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "exporting state interface: %s", state_iface.get_name().c_str());
+        });
 
         return state_interfaces;
     };
@@ -712,7 +721,10 @@ namespace soem_driver
                                                                return acc + (transmissions.find(name) != transmissions.end() ? interfaces.size() : 0);
                                                            });
         RCLCPP_INFO(rclcpp::get_logger(__logger_name), "reserving %zu command interface transmission variables", transmission_values_count);
-        transmission_command_values.reserve(transmission_values_count + 1);
+        
+        // allocate command values
+        transmission_command_values.resize(transmission_values_count, NAN);
+        auto transmission_command_values_iterator = transmission_command_values.begin();
 
         std::for_each(command_interfaces_by_joint.begin(), command_interfaces_by_joint.end(), [&](auto &&single_joints_command_interfaces)
                       {
@@ -743,7 +755,7 @@ namespace soem_driver
                                         return std::move(hardware_interface::CommandInterface(
                                             transmission_info.joints[0].name,
                                             interface.get_interface_name(),
-                                            &transmission_command_values.back()
+                                            std::to_address(transmission_command_values_iterator)
                                         ));
                                     }
                                     );
@@ -773,6 +785,9 @@ namespace soem_driver
                                     );
                                 }
 
+                                
+                                // advance iterator for next transmission
+                                std::advance(transmission_command_values_iterator, 1);
                                 // add newly built interfaces to exports
                                 std::move(std::begin(transmission_command_interfaces), std::end(transmission_command_interfaces), std::back_inserter(command_interfaces));
                             }
