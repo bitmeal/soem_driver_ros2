@@ -491,15 +491,20 @@ namespace soem_driver
                 auto transmission_loader = transmission_loader_loader_.createUniqueInstance(transmission_info.type);
 
                 RCLCPP_DEBUG(rclcpp::get_logger(__logger_name), "loading Transmission for transmission %s of type %s", transmission_info.name.c_str(), transmission_info.type.c_str());
-                auto transmission = std::make_tuple(
-                    transmission_info,
-                    transmission_loader->load(transmission_info),
-                    transmission_loader->load(transmission_info));
+                transmissions.emplace(std::make_pair(transmission_info.actuators[0].name,
+                    std::move(std::make_tuple(
+                        transmission_info,
+                        transmission_loader->load(transmission_info),
+                        transmission_loader->load(transmission_info)))));
+                // auto transmission = std::make_tuple(
+                //     transmission_info,
+                //     transmission_loader->load(transmission_info),
+                //     transmission_loader->load(transmission_info));
                 RCLCPP_INFO(rclcpp::get_logger(__logger_name), "successfully loaded transmission %s of type %s from actuator %s to joint %s (loading twice for state/command)", transmission_info.name.c_str(), transmission_info.type.c_str(), transmission_info.actuators[0].name.c_str(), transmission_info.joints[0].name.c_str());
 
                 // add transmission to map from actuator names to transmissions; actuators are system interface joints!
                 // transmissions[transmission_info.joints[0].name] = transmission;
-                transmissions[transmission_info.actuators[0].name] = transmission;
+                // transmissions[transmission_info.actuators[0].name] = transmission;
             }
             catch (const std::exception &e)
             {
@@ -630,7 +635,7 @@ namespace soem_driver
                                                                return acc + (transmissions.find(name) != transmissions.end() ? interfaces.size() : 0);
                                                            });
         RCLCPP_INFO(rclcpp::get_logger(__logger_name), "reserving %zu state interface transmission variables", transmission_values_count);
-        
+
         // allocate state values
         transmission_state_values.resize(transmission_values_count, NAN);
         auto transmission_state_values_iterator = transmission_state_values.begin();
@@ -702,9 +707,8 @@ namespace soem_driver
                                 std::move(std::begin(interfaces), std::end(interfaces), std::back_inserter(state_interfaces));
                             } });
 
-        std::for_each(state_interfaces.begin(), state_interfaces.end(), [&](auto& state_iface){
-            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "exporting state interface: %s", state_iface.get_name().c_str());
-        });
+        std::for_each(state_interfaces.begin(), state_interfaces.end(), [&](auto &state_iface)
+                      { RCLCPP_INFO(rclcpp::get_logger(__logger_name), "exporting state interface: %s", state_iface.get_name().c_str()); });
 
         return state_interfaces;
     };
@@ -721,7 +725,7 @@ namespace soem_driver
                                                                return acc + (transmissions.find(name) != transmissions.end() ? interfaces.size() : 0);
                                                            });
         RCLCPP_INFO(rclcpp::get_logger(__logger_name), "reserving %zu command interface transmission variables", transmission_values_count);
-        
+
         // allocate command values
         transmission_command_values.resize(transmission_values_count, NAN);
         auto transmission_command_values_iterator = transmission_command_values.begin();

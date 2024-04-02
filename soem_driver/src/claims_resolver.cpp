@@ -71,7 +71,7 @@ namespace soem_driver
         std::for_each(claims.begin(), claims.end(), [&](auto &&claim_id)
                       {
                         // tokenize claim to: slave, claim, type, name (convert to string from string_view for easier logging)
-                        auto& [slave, claim, type, name] = tokenize_interface(claim_id);
+                        auto&& [slave, claim, type, name] = tokenize_interface(claim_id);
 
                         // shall use state interfaces, as in: whole claim (state and command) or state only
                         if(type.empty() || !type.compare("state"))
@@ -80,9 +80,9 @@ namespace soem_driver
                             auto slave_if_it = slave_interfaces.find(slave);
                             if(slave_if_it != slave_interfaces.end())
                             {
-                                auto& [slave_state_interfaces, _] = slave_if_it->second;
+                                auto&& [slave_state_interfaces, _] = slave_if_it->second;
 
-                                auto& interfaces = slave_state_interfaces;
+                                auto&& interfaces = slave_state_interfaces;
 
                                 typename std::remove_cvref_t<decltype(interfaces)>::iterator interfaces_begin;
                                 typename std::remove_cvref_t<decltype(interfaces)>::iterator interfaces_end;
@@ -169,7 +169,7 @@ namespace soem_driver
 
         std::for_each(joint_claims.begin(), joint_claims.end(), [&](auto &&single_joints_claims)
                       {
-                          auto joint_state_interfaces = resolve_state_interfaces_by_joint(single_joints_claims.first);
+                          auto&& joint_state_interfaces = resolve_state_interfaces_by_joint(single_joints_claims.first);
                           state_interfaces.emplace(std::make_pair(single_joints_claims.first, std::move(joint_state_interfaces))); });
 
         return state_interfaces;
@@ -190,7 +190,7 @@ namespace soem_driver
         std::for_each(claims.begin(), claims.end(), [&](auto &&claim_id)
                       {
                         // tokenize claim to: slave, claim, type, name (convert to string from string_view for easier logging)
-                        auto& [slave, claim, type, name] = tokenize_interface(claim_id);
+                        auto&& [slave, claim, type, name] = tokenize_interface(claim_id);
 
                         // shall use command interfaces, as in: whole claim (state and command) or command only
                         if(type.empty() || !type.compare("command"))
@@ -199,9 +199,9 @@ namespace soem_driver
                             auto slave_if_it = slave_interfaces.find(slave);
                             if(slave_if_it != slave_interfaces.end())
                             {
-                                auto& [_, slave_command_interfaces] = slave_if_it->second;
+                                auto&& [_, slave_command_interfaces] = slave_if_it->second;
 
-                                auto& interfaces = slave_command_interfaces;
+                                auto&& interfaces = slave_command_interfaces;
 
                                 typename std::remove_cvref_t<decltype(interfaces)>::iterator interfaces_begin;
                                 typename std::remove_cvref_t<decltype(interfaces)>::iterator interfaces_end;
@@ -260,7 +260,7 @@ namespace soem_driver
 
         return std::make_pair(
             std::move(joint_command_interfaces),
-            joint_command_interface_map);
+            std::move(joint_command_interface_map));
     };
 
     // std::vector<hardware_interface::CommandInterface> ECClaimsResolver::export_command_interfaces()
@@ -292,7 +292,7 @@ namespace soem_driver
 
         std::for_each(joint_claims.begin(), joint_claims.end(), [&](auto &&single_joints_claims)
                       {
-                          auto [joint_command_interfaces, joint_command_interface_map] = resolve_command_interfaces_by_joint(single_joints_claims.first);
+                          auto&& [joint_command_interfaces, joint_command_interface_map] = resolve_command_interfaces_by_joint(single_joints_claims.first);
 
                           command_interface_map.insert(std::begin(joint_command_interface_map), std::end(joint_command_interface_map));
                           command_interfaces.emplace(std::make_pair(single_joints_claims.first, std::move(joint_command_interfaces))); });
