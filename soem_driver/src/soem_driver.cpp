@@ -314,16 +314,16 @@ namespace soem_driver
 
     SOEMDriver::SOEMDiagnosticsPublisher::SOEMDiagnosticsPublisher(
         const std::string name,
-        const std::string &interface,
+        const std::string interface,
         const rclcpp::NodeOptions &options,
-        soem_master::SOEMMaster &master,
-        const std::unordered_map<std::string, std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave>> &slaves,
+        soem_master::SOEMMaster &soem_master,
+        const std::unordered_map<std::string, std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave>> &soem_slaves,
         const std::chrono::milliseconds cycle_time_ms) : rclcpp::Node(name, options),
-                                                         master(master),
-                                                         slaves(slaves)
+                                                         master(soem_master),
+                                                         slaves(soem_slaves)
     {
         pub = create_publisher<diagnostic_msgs::msg::DiagnosticArray>("diagnostics", 10);
-        timer = create_wall_timer(cycle_time_ms, [&]
+        timer = create_wall_timer(cycle_time_ms, [&, interface]
                                   {
             auto msg = std::make_unique<diagnostic_msgs::msg::DiagnosticArray>();
 
@@ -354,24 +354,44 @@ namespace soem_driver
         if (!driver_ros_node_executor || (driver_ros_node_executor && !driver_ros_node_executor->is_spinning()))
         {
             RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Starting diagnostics publisher thread");
+            // make executor
+            driver_ros_node_executor = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
+
+            // diagnostics publisher
+            driver_ros_node = std::make_shared<SOEMDiagnosticsPublisher>(
+                "soem_driver_" + instance_name + "_diagnostics",
+                ec_interface,
+                rclcpp::NodeOptions(),
+                master,
+                slaves,
+                cycle_time_ms);
+
+            driver_ros_node_executor->add_node(driver_ros_node);
+
+            // run executor
             driver_ros_node_executor_thread = std::thread(
                 [&]()
                 {
-                    // make executor
-                    driver_ros_node_executor = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
-
-                    // diagnostics publisher
-                    driver_ros_node = std::make_shared<SOEMDiagnosticsPublisher>(
-                        "soem_driver_" + instance_name + "_diagnostics",
-                        ec_interface,
-                        rclcpp::NodeOptions(),
-                        master,
-                        slaves,
-                        cycle_time_ms);
-
-                    driver_ros_node_executor->add_node(driver_ros_node);
                     driver_ros_node_executor->spin();
                 });
+            // driver_ros_node_executor_thread = std::thread(
+            //     [&]()
+            //     {
+            //         // make executor
+            //         driver_ros_node_executor = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
+
+            //         // diagnostics publisher
+            //         driver_ros_node = std::make_shared<SOEMDiagnosticsPublisher>(
+            //             "soem_driver_" + instance_name + "_diagnostics",
+            //             ec_interface,
+            //             rclcpp::NodeOptions(),
+            //             master,
+            //             slaves,
+            //             cycle_time_ms);
+
+            //         driver_ros_node_executor->add_node(driver_ros_node);
+            //         driver_ros_node_executor->spin();
+            //     });
 
             RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Diagnostics publisher started");
         }
@@ -492,10 +512,10 @@ namespace soem_driver
 
                 RCLCPP_DEBUG(rclcpp::get_logger(__logger_name), "loading Transmission for transmission %s of type %s", transmission_info.name.c_str(), transmission_info.type.c_str());
                 transmissions.emplace(std::make_pair(transmission_info.actuators[0].name,
-                    std::move(std::make_tuple(
-                        transmission_info,
-                        transmission_loader->load(transmission_info),
-                        transmission_loader->load(transmission_info)))));
+                                                     std::make_tuple(
+                                                         transmission_info,
+                                                         transmission_loader->load(transmission_info),
+                                                         transmission_loader->load(transmission_info))));
                 // auto transmission = std::make_tuple(
                 //     transmission_info,
                 //     transmission_loader->load(transmission_info),
@@ -591,34 +611,45 @@ namespace soem_driver
             RCLCPP_INFO(rclcpp::get_logger(__logger_name), "successfully configured slave %s", slave_info.name.c_str());
         }
 
-        // bring up diagnostics publisher before bus start, to caputure early state
-        run_diagnostics_publisher(diagnostics_cycle_ms);
+        // // bring up diagnostics publisher before bus start, to caputure early state
+        // run_diagnostics_publisher(diagnostics_cycle_ms);
 
-        // start EtherCAT bus and setup data access structures
-        master.start_bus();
-
-        // assign data access structures to slaves
-        for (auto slave_ptr : initialized_slaves)
+        try
         {
-            auto ec_slave_da_it = std::find_if(
-                master.slaves_data_access.begin(), master.slaves_data_access.end(),
-                [&](const soem_master::SOEMEcSlaveDataAccess &ec_slave_da)
-                {
-                    return ec_slave_da.slave_info.position == slave_ptr->_position_ec_bus;
-                });
-            if (ec_slave_da_it == master.slaves_data_access.end())
+            // start EtherCAT bus and setup data access structures
+            master.start_bus();
+
+            // assign data access structures to slaves
+            for (auto slave_ptr : initialized_slaves)
             {
-                // this should never happen... and check may be removed
-                // RCLCPP_WARN(rclcpp::get_logger(__logger_name), "failed to find a slave on the bus for %s @%d:%d", slave_info.name.c_str(), slave_info.position, slave_info.alias);
-                continue;
+                auto ec_slave_da_it = std::find_if(
+                    master.slaves_data_access.begin(), master.slaves_data_access.end(),
+                    [&](const soem_master::SOEMEcSlaveDataAccess &ec_slave_da)
+                    {
+                        return ec_slave_da.slave_info.position == slave_ptr->_position_ec_bus;
+                    });
+                if (ec_slave_da_it == master.slaves_data_access.end())
+                {
+                    // this should never happen... and check may be removed
+                    // RCLCPP_WARN(rclcpp::get_logger(__logger_name), "failed to find a slave on the bus for %s @%d:%d", slave_info.name.c_str(), slave_info.position, slave_info.alias);
+                    continue;
+                }
+
+                // setup data access
+                slave_ptr->_RxPDO = ec_slave_da_it->RxPDO;
+                slave_ptr->_TxPDO = ec_slave_da_it->TxPDO;
+
+                RCLCPP_INFO(rclcpp::get_logger(__logger_name), "successfully configured process data access for slave in position %d", slave_ptr->_position_ec_bus);
             }
-
-            // setup data access
-            slave_ptr->_RxPDO = ec_slave_da_it->RxPDO;
-            slave_ptr->_TxPDO = ec_slave_da_it->TxPDO;
-
-            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "successfully configured process data access for slave in position %d", slave_ptr->_position_ec_bus);
         }
+        catch (const std::exception &e)
+        {
+            RCLCPP_ERROR(rclcpp::get_logger(__logger_name), "failed to start EtherCAT bus");
+            return CallbackReturn::ERROR;
+        }
+
+        // // run after bus start for debugging purposes
+        // run_diagnostics_publisher(diagnostics_cycle_ms);
 
         return CallbackReturn::SUCCESS;
     };
@@ -629,7 +660,7 @@ namespace soem_driver
         auto state_interfaces_by_joint = claims_resolver.export_state_interfaces_by_joint();
 
         size_t transmission_values_count = std::accumulate(state_interfaces_by_joint.begin(), state_interfaces_by_joint.end(), 0,
-                                                           [&](size_t acc, auto &&single_joints_state_interfaces)
+                                                           [&](size_t acc, auto &single_joints_state_interfaces)
                                                            {
                                                                auto &[name, interfaces] = single_joints_state_interfaces;
                                                                return acc + (transmissions.find(name) != transmissions.end() ? interfaces.size() : 0);
@@ -640,7 +671,7 @@ namespace soem_driver
         transmission_state_values.resize(transmission_values_count, NAN);
         auto transmission_state_values_iterator = transmission_state_values.begin();
 
-        std::for_each(state_interfaces_by_joint.begin(), state_interfaces_by_joint.end(), [&](auto &&single_joints_state_interfaces)
+        std::for_each(state_interfaces_by_joint.begin(), state_interfaces_by_joint.end(), [&](const auto &single_joints_state_interfaces)
                       {
                             auto& [name, interfaces] = single_joints_state_interfaces;
                             // state_interfaces.reserve(state_interfaces.size() + interfaces.size());
@@ -650,8 +681,8 @@ namespace soem_driver
                             {
                                 RCLCPP_INFO(rclcpp::get_logger(__logger_name), "configuring state interface transmission for joint %s", name.c_str());
 
-                                auto& state_transmission = std::get<1>(transmissions[name]);
-                                auto& transmission_info = std::get<hardware_interface::TransmissionInfo>(transmissions[name]);
+                                auto state_transmission = std::get<1>(transmissions[name]);
+                                auto transmission_info = std::get<hardware_interface::TransmissionInfo>(transmissions[name]);
 
                                 // build new joint interfaces to be exported to resource manager
                                 // "proxy"-joint interfaces to the slaves interfaces are actuator interfaces
@@ -659,23 +690,42 @@ namespace soem_driver
 
                                 std::transform(interfaces.begin(), interfaces.end(),
                                     std::back_inserter(transmission_state_interfaces),
-                                    [&](auto& interface)
+                                    [&](const auto& interface)
                                     {                                
-                                        transmission_state_values.push_back({});
+                                        // transmission_state_values.push_back({});
                                      
-                                        return std::move(hardware_interface::StateInterface(
+                                        auto transmission_interface = hardware_interface::StateInterface(
                                             transmission_info.joints[0].name,
                                             interface.get_interface_name(),
-                                            std::to_address(transmission_state_values_iterator)
-                                        ));
+                                            transmission_state_values.data() + std::distance(
+                                                    std::begin(transmission_state_values),
+                                                    transmission_state_values_iterator
+                                            )
+                                            // std::to_address(transmission_state_values_iterator)
+                                        );
+
+                                        // advance iterator for next transmission
+                                        std::advance(transmission_state_values_iterator, 1);
+
+                                        return transmission_interface;
+
+                                        // return std::move(hardware_interface::StateInterface(
+                                        //     transmission_info.joints[0].name,
+                                        //     interface.get_interface_name(),
+                                        //     transmission_state_values.data() + std::distance(
+                                        //             std::begin(transmission_state_values),
+                                        //             transmission_state_values_iterator
+                                        //     )
+                                        //     // std::to_address(transmission_state_values_iterator)
+                                        // ));
                                     }
                                     );
 
-                                {
+                                // {
                                     std::vector<transmission_interface::JointHandle> state_transmission_joint_handles;
                                     std::transform(transmission_state_interfaces.begin(), transmission_state_interfaces.end(),
                                         std::back_inserter(state_transmission_joint_handles),
-                                        [&](auto&& interface)
+                                        [&](const auto& interface)
                                         {
                                             auto alias_factory = AliasInterfaceFactory{interface};
                                             return std::move(alias_factory.makeInterface<transmission_interface::JointHandle>(transmission_info.joints[0].name, interface.get_interface_name()));
@@ -684,27 +734,35 @@ namespace soem_driver
                                     std::vector<transmission_interface::ActuatorHandle> state_transmission_actuator_handles;
                                     std::transform(interfaces.begin(), interfaces.end(),
                                         std::back_inserter(state_transmission_actuator_handles),
-                                        [&](auto&& interface)
+                                        [&](const auto& interface)
                                         {
                                             auto alias_factory = AliasInterfaceFactory{interface};
-                                            return std::move(alias_factory.makeInterface<transmission_interface::ActuatorHandle>(interface.get_prefix_name(), interface.get_interface_name()));
+                                            return std::move(alias_factory.makeInterface<transmission_interface::ActuatorHandle>(transmission_info.actuators[0].name, interface.get_interface_name()));
                                         });
 
                                     state_transmission->configure(
                                         state_transmission_joint_handles,
                                         state_transmission_actuator_handles
                                     );
-                                }
+                                // }
 
-                                // advance iterator for next transmission
-                                std::advance(transmission_state_values_iterator, 1);
+                                // // advance iterator for next transmission
+                                // std::advance(transmission_state_values_iterator, 1);
                                 // add newly built interfaces to exports
                                 std::move(std::begin(transmission_state_interfaces), std::end(transmission_state_interfaces), std::back_inserter(state_interfaces));
                             }
                             else
                             {
                                 // add interfaces to exports
-                                std::move(std::begin(interfaces), std::end(interfaces), std::back_inserter(state_interfaces));
+                                // std::move(std::begin(interfaces), std::end(interfaces), std::back_inserter(state_interfaces));
+                                std::transform(interfaces.begin(), interfaces.end(),
+                                    std::back_inserter(state_interfaces),
+                                    [&](const auto& interface)
+                                    {                                
+                                            auto alias_factory = AliasInterfaceFactory{interface};
+                                            return std::move(alias_factory.makeInterface<hardware_interface::StateInterface>(name, interface.get_interface_name()));
+                                    }
+                                );
                             } });
 
         std::for_each(state_interfaces.begin(), state_interfaces.end(), [&](auto &state_iface)
@@ -719,7 +777,7 @@ namespace soem_driver
         auto command_interfaces_by_joint = claims_resolver.export_command_interfaces_by_joint();
 
         size_t transmission_values_count = std::accumulate(command_interfaces_by_joint.begin(), command_interfaces_by_joint.end(), 0,
-                                                           [&](size_t acc, auto &&single_joints_command_interfaces)
+                                                           [&](size_t acc, auto &single_joints_command_interfaces)
                                                            {
                                                                auto &[name, interfaces] = single_joints_command_interfaces;
                                                                return acc + (transmissions.find(name) != transmissions.end() ? interfaces.size() : 0);
@@ -730,7 +788,7 @@ namespace soem_driver
         transmission_command_values.resize(transmission_values_count, NAN);
         auto transmission_command_values_iterator = transmission_command_values.begin();
 
-        std::for_each(command_interfaces_by_joint.begin(), command_interfaces_by_joint.end(), [&](auto &&single_joints_command_interfaces)
+        std::for_each(command_interfaces_by_joint.begin(), command_interfaces_by_joint.end(), [&](const auto &single_joints_command_interfaces)
                       {
                             auto& [name, interfaces] = single_joints_command_interfaces;
                             // command_interfaces.reserve(command_interfaces.size() + interfaces.size());
@@ -740,8 +798,8 @@ namespace soem_driver
                             {
                                 RCLCPP_INFO(rclcpp::get_logger(__logger_name), "configuring command interface transmission for joint %s", name.c_str());
 
-                                auto& command_transmission = std::get<2>(transmissions[name]);
-                                auto& transmission_info = std::get<hardware_interface::TransmissionInfo>(transmissions[name]);
+                                auto command_transmission = std::get<2>(transmissions[name]);
+                                auto transmission_info = std::get<hardware_interface::TransmissionInfo>(transmissions[name]);
 
                                 // build new joint interfaces to be exported to resource manager
                                 // "proxy"-joint interfaces to the slaves interfaces are actuator interfaces
@@ -749,26 +807,44 @@ namespace soem_driver
 
                                 std::transform(interfaces.begin(), interfaces.end(),
                                     std::back_inserter(transmission_command_interfaces),
-                                    [&](auto& interface)
+                                    [&](const auto& interface)
                                     {                                
-                                        transmission_command_values.push_back({});
+                                        // transmission_command_values.push_back({});
                                         
                                         // add interface to map for resolution in command mode switch
                                         transmission_command_interface_map[transmission_info.joints[0].name + "/" + interface.get_interface_name()] = interface.get_name();
 
-                                        return std::move(hardware_interface::CommandInterface(
+                                        auto transmission_interface = hardware_interface::CommandInterface(
                                             transmission_info.joints[0].name,
                                             interface.get_interface_name(),
-                                            std::to_address(transmission_command_values_iterator)
-                                        ));
+                                            transmission_command_values.data() + std::distance(
+                                                    std::begin(transmission_command_values),
+                                                    transmission_command_values_iterator
+                                            )
+                                        );
+
+                                        // advance iterator for next transmission
+                                        std::advance(transmission_command_values_iterator, 1);
+
+                                        return transmission_interface;
+
+                                        // return std::move(hardware_interface::CommandInterface(
+                                        //     transmission_info.joints[0].name,
+                                        //     interface.get_interface_name(),
+                                        //     transmission_command_values.data() + std::distance(
+                                        //             std::begin(transmission_command_values),
+                                        //             transmission_command_values_iterator
+                                        //     )
+                                        //     // std::to_address(transmission_command_values_iterator)
+                                        // ));
                                     }
                                     );
 
-                                {
+                                // {
                                     std::vector<transmission_interface::JointHandle> command_transmission_joint_handles;
                                     std::transform(transmission_command_interfaces.begin(), transmission_command_interfaces.end(),
                                         std::back_inserter(command_transmission_joint_handles),
-                                        [&](auto&& interface)
+                                        [&](const auto& interface)
                                         {
                                             auto alias_factory = AliasInterfaceFactory{interface};
                                             return std::move(alias_factory.makeInterface<transmission_interface::JointHandle>(transmission_info.joints[0].name, interface.get_interface_name()));
@@ -777,29 +853,40 @@ namespace soem_driver
                                     std::vector<transmission_interface::ActuatorHandle> command_transmission_actuator_handles;
                                     std::transform(interfaces.begin(), interfaces.end(),
                                         std::back_inserter(command_transmission_actuator_handles),
-                                        [&](auto&& interface)
+                                        [&](const auto& interface)
                                         {
                                             auto alias_factory = AliasInterfaceFactory{interface};
-                                            return std::move(alias_factory.makeInterface<transmission_interface::ActuatorHandle>(interface.get_prefix_name(), interface.get_interface_name()));
+                                            return std::move(alias_factory.makeInterface<transmission_interface::ActuatorHandle>(transmission_info.actuators[0].name, interface.get_interface_name()));
                                         });
 
                                     command_transmission->configure(
                                         command_transmission_joint_handles,
                                         command_transmission_actuator_handles
                                     );
-                                }
+                                // }
 
                                 
-                                // advance iterator for next transmission
-                                std::advance(transmission_command_values_iterator, 1);
+                                // // advance iterator for next transmission
+                                // std::advance(transmission_command_values_iterator, 1);
                                 // add newly built interfaces to exports
                                 std::move(std::begin(transmission_command_interfaces), std::end(transmission_command_interfaces), std::back_inserter(command_interfaces));
                             }
                             else
                             {
                                 // add interfaces to exports
-                                std::move(std::begin(interfaces), std::end(interfaces), std::back_inserter(command_interfaces));
+                                // std::move(std::begin(interfaces), std::end(interfaces), std::back_inserter(command_interfaces));
+                                std::transform(interfaces.begin(), interfaces.end(),
+                                    std::back_inserter(command_interfaces),
+                                    [&](const auto& interface)
+                                    {                                
+                                            auto alias_factory = AliasInterfaceFactory{interface};
+                                            return std::move(alias_factory.makeInterface<hardware_interface::CommandInterface>(name, interface.get_interface_name()));
+                                    }
+                                );
                             } });
+
+        std::for_each(command_interfaces.begin(), command_interfaces.end(), [&](auto &command_iface)
+                      { RCLCPP_INFO(rclcpp::get_logger(__logger_name), "exporting command interface: %s", command_iface.get_name().c_str()); });
 
         return command_interfaces;
     };
@@ -836,7 +923,7 @@ namespace soem_driver
             slave_ptr->read(time, duration);
         }
 
-        std::for_each(transmissions.begin(), transmissions.end(), [&](auto &&joints_transmissions)
+        std::for_each(transmissions.begin(), transmissions.end(), [&](auto &joints_transmissions)
                       { std::get<1>(joints_transmissions.second)->actuator_to_joint(); });
 
         return hardware_interface::return_type::OK;
@@ -844,10 +931,10 @@ namespace soem_driver
 
     hardware_interface::return_type SOEMDriver::write(const rclcpp::Time &time, const rclcpp::Duration &duration)
     {
-        std::for_each(transmissions.begin(), transmissions.end(), [&](auto &&joints_transmissions)
+        std::for_each(transmissions.begin(), transmissions.end(), [&](auto &joints_transmissions)
                       { std::get<2>(joints_transmissions.second)->joint_to_actuator(); });
 
-        // make slaves write new process data and requeset mailbox sends
+        // make slaves write new process data and request mailbox sends
         for (auto slave_ptr : initialized_slaves)
         {
             auto &slave_da = master.slaves_data_access[slave_ptr->_position_ec_bus - 1];
@@ -859,7 +946,7 @@ namespace soem_driver
             { // no ongoing send operation
                 slave_ptr->mbx_send_queue.consume_one([&](auto mbx_send_data)
                                                       {
-                                                            auto [msg, read_response, read_mbx_raw] = mbx_send_data;
+                                                            auto& [msg, read_response, read_mbx_raw] = mbx_send_data;
                                                             std::copy_n(msg.begin(), std::min(msg.size(), slave_da.SMbx.size()), slave_da.SMbx.begin()); 
 
                                                             slave_da.receive_mbx_raw.store(read_mbx_raw);

@@ -118,10 +118,10 @@ namespace soem_driver
         public:
             SOEMDiagnosticsPublisher(
                 const std::string name,
-                const std::string &interface,
+                const std::string interface,
                 const rclcpp::NodeOptions &options,
-                soem_master::SOEMMaster &master,
-                const std::unordered_map<std::string, std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave>> &slaves,
+                soem_master::SOEMMaster &soem_master,
+                const std::unordered_map<std::string, std::shared_ptr<soem_driver_slave_interface::SOEMDriverSlave>> &soem_slaves,
                 const std::chrono::milliseconds cycle_time_ms);
 
             ~SOEMDiagnosticsPublisher();

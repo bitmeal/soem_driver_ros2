@@ -233,7 +233,7 @@ namespace soem_master
         SMbx_working.resize(slaves.size(), {});
         RMbx_working.resize(slaves.size(), {});
         // _slaves_data_access.reserve(slaves.size());
-        for (auto &&slave : _slaves)
+        for (auto &slave : _slaves)
         {
             SMbx_working[slave.position - 1].resize(ec_slave[slave.position].mbx_l, std::byte(0x00));
             RMbx_working[slave.position - 1].resize(ec_slave[slave.position].mbx_rl, std::byte(0x00));
@@ -268,11 +268,12 @@ namespace soem_master
     {
         RCLCPP_INFO(rclcpp::get_logger(__logger_name), "requesting OP state for all slaves");
 
-        // request OP state and wait for slaves to reach
-        ec_slave[0].state = EC_STATE_OPERATIONAL;
-
+        // execute one bus cycle
         ecx_send_overlap_processdata_group(&ecx_context, 0);
         ecx_receive_processdata(&ecx_context, EC_TIMEOUTRET);
+
+        // request OP state and wait for slaves to reach
+        ec_slave[0].state = EC_STATE_OPERATIONAL;
         ecx_writestate(&ecx_context, 0);
 
         int max_OP_PD = 200;
@@ -599,12 +600,12 @@ namespace soem_master
 
     const soem_driver::buffer SOEMMaster::getSMbx(SOEMEcSlaveInfo slave)
     {
-        auto holding_buffer = SMbx_working[slave.position - 1];
+        auto& holding_buffer = SMbx_working[slave.position - 1];
         return {holding_buffer.data(), holding_buffer.size()};
     };
     const soem_driver::buffer SOEMMaster::getRMbx(SOEMEcSlaveInfo slave)
     {
-        auto holding_buffer = RMbx_working[slave.position - 1];
+        auto& holding_buffer = RMbx_working[slave.position - 1];
         return {holding_buffer.data(), holding_buffer.size()};
     };
 

@@ -219,38 +219,38 @@ namespace soem_master
         // from ethercatmain.c
         // TODO(bitmeal): wrap in context owning structure
 
-        ec_slavet ec_slave[EC_MAXSLAVE];
+        ec_slavet ec_slave[EC_MAXSLAVE] = {};
         /** number of slaves found on the network */
         int ec_slavecount;
         /** slave group structure */
-        ec_groupt ec_group[EC_MAXGROUP];
+        ec_groupt ec_group[EC_MAXGROUP] = {};
 
         /** cache for EEPROM read functions */
-        uint8 ec_esibuf[EC_MAXEEPBUF];
+        uint8 ec_esibuf[EC_MAXEEPBUF] = {};
         /** bitmap for filled cache buffer bytes */
-        uint32 ec_esimap[EC_MAXEEPBITMAP];
+        uint32 ec_esimap[EC_MAXEEPBITMAP] = {};
         /** current slave for EEPROM cache buffer */
-        ec_eringt ec_elist;
-        ec_idxstackT ec_idxstack;
+        ec_eringt ec_elist = {};
+        ec_idxstackT ec_idxstack = {};
 
         /** SyncManager Communication Type struct to store data of one slave */
-        ec_SMcommtypet ec_SMcommtype[EC_MAX_MAPT];
+        ec_SMcommtypet ec_SMcommtype[EC_MAX_MAPT] = {};
         /** PDO assign struct to store data of one slave */
-        ec_PDOassignt ec_PDOassign[EC_MAX_MAPT];
+        ec_PDOassignt ec_PDOassign[EC_MAX_MAPT] = {};
         /** PDO description struct to store data of one slave */
-        ec_PDOdesct ec_PDOdesc[EC_MAX_MAPT];
+        ec_PDOdesct ec_PDOdesc[EC_MAX_MAPT] = {};
 
         /** buffer for EEPROM SM data */
-        ec_eepromSMt ec_SM;
+        ec_eepromSMt ec_SM = {};
         /** buffer for EEPROM FMMU data */
-        ec_eepromFMMUt ec_FMMU;
+        ec_eepromFMMUt ec_FMMU = {};
         /** Global variable TRUE if error available in error stack */
         boolean EcatError = FALSE;
 
         int64 ec_DCtime;
 
-        ecx_portt ecx_port;
-        ecx_redportt ecx_redport;
+        ecx_portt ecx_port = {};
+        ecx_redportt ecx_redport = {};
 
         ecx_contextt ecx_context;
         ////////////////////////////

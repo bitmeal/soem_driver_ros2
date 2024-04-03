@@ -129,8 +129,8 @@ namespace soem_slave_modules
 
         struct Version_t
         {
-            int major;
-            int minor;
+            int major = 0;
+            int minor = 0;
         };
 
         // state symbols
@@ -191,8 +191,8 @@ namespace soem_slave_modules
 
         bool has_gripper = false;
 
-        Version_t firmware_version;
-        uint16_t module_type;
+        Version_t firmware_version = {};
+        uint16_t module_type = 0;
         uint32_t encoder_ticks = 0;
         double torque_constant = .0;
         double homing_current = .0;
