@@ -169,7 +169,7 @@ namespace soem_driver
     {
         std::unordered_map<std::string, std::vector<std::string>> claims_map;
 
-        for (auto &&joint : info.joints)
+        for (auto &joint : info.joints)
         {
             std::vector<std::string> claims_list;
 
@@ -262,6 +262,7 @@ namespace soem_driver
             throw std::runtime_error("no ec_interface tag in hardware");
         }
         ec_interface = _get_text_for_element(ec_interface_it, "ec_interface");
+        RCLCPP_INFO(rclcpp::get_logger(__logger_name), "using interface %s", ec_interface.c_str());
 
         // get realtime loop cycle time configuration
         const auto *ec_cycle_us_it = hardware_it->FirstChildElement("ec_cycle_us");
@@ -271,6 +272,7 @@ namespace soem_driver
         }
         ec_cycle_us = std::chrono::microseconds{
             std::stoi(_get_text_for_element(ec_cycle_us_it, "ec_cycle_us"))};
+        RCLCPP_INFO(rclcpp::get_logger(__logger_name), "EtherCAT realtime loop will run at %ldµs cycle time", ec_cycle_us.count());
 
         // get EtherCAT timeout configuration
         const auto *ec_timeout_pd_it = hardware_it->FirstChildElement("ec_timeout_pd_us");
@@ -353,7 +355,8 @@ namespace soem_driver
         // RCLCPP_DEBUG(rclcpp::get_logger(__logger_name), "Requested to run threaded diagnostics publisher Node; checking executor state");
         if (!driver_ros_node_executor || (driver_ros_node_executor && !driver_ros_node_executor->is_spinning()))
         {
-            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Starting diagnostics publisher thread");
+            RCLCPP_DEBUG(rclcpp::get_logger(__logger_name), "Starting diagnostics publisher thread");
+
             // make executor
             driver_ros_node_executor = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
 
@@ -374,6 +377,7 @@ namespace soem_driver
                 {
                     driver_ros_node_executor->spin();
                 });
+
             // driver_ros_node_executor_thread = std::thread(
             //     [&]()
             //     {
@@ -441,20 +445,20 @@ namespace soem_driver
             return CallbackReturn::FAILURE;
         }
 
-        // report ethercat interface
-        RCLCPP_INFO(rclcpp::get_logger(__logger_name), "using interface %s", ec_interface.c_str());
+        // // report ethercat interface
+        // RCLCPP_INFO(rclcpp::get_logger(__logger_name), "using interface %s", ec_interface.c_str());
 
-        // report realtime loop cycle time
-        RCLCPP_INFO(rclcpp::get_logger(__logger_name), "EtherCAT realtime loop will run at %ldµs cycle time", ec_cycle_us.count());
+        // // report realtime loop cycle time
+        // RCLCPP_INFO(rclcpp::get_logger(__logger_name), "EtherCAT realtime loop will run at %ldµs cycle time", ec_cycle_us.count());
 
         // report slaves
-        for (auto &&slave : slave_infos)
+        for (auto &slave : slave_infos)
         {
             RCLCPP_INFO(rclcpp::get_logger(__logger_name), "slave %s<%s>@%i:%i", slave.name.c_str(), slave.plugin_name.c_str(), slave.alias, slave.position);
         }
 
         // report claims
-        for (auto &&claims : joint_claims)
+        for (auto &claims : joint_claims)
         {
             const std::string claims_str = std::accumulate(std::next(claims.second.begin()), claims.second.end(),
                                                            claims.second.front(),
@@ -465,7 +469,7 @@ namespace soem_driver
         }
 
         // load slave modules
-        for (auto &&slave : slave_infos)
+        for (auto &slave : slave_infos)
         {
             try
             {
@@ -480,7 +484,7 @@ namespace soem_driver
                 }
 
                 slaves[slave.name] = slave_plugin;
-                RCLCPP_INFO(rclcpp::get_logger(__logger_name), "successfully loaded plugin %s for slave %s", slave.plugin_name.c_str(), slave.name.c_str());
+                RCLCPP_DEBUG(rclcpp::get_logger(__logger_name), "successfully loaded plugin %s for slave %s", slave.plugin_name.c_str(), slave.name.c_str());
             }
             catch (const std::exception &e)
             {
@@ -494,7 +498,7 @@ namespace soem_driver
         // for now only:
         //  - SimpleTransmission (lazy specialization)
         //  - transmissions targeting one joint only in general
-        for (auto &&transmission_info : info.transmissions)
+        for (auto &transmission_info : info.transmissions)
         {
             if (
                 transmission_info.type != "transmission_interface/SimpleTransmission" || transmission_info.joints.size() != 1)
@@ -520,7 +524,7 @@ namespace soem_driver
                 //     transmission_info,
                 //     transmission_loader->load(transmission_info),
                 //     transmission_loader->load(transmission_info));
-                RCLCPP_INFO(rclcpp::get_logger(__logger_name), "successfully loaded transmission %s of type %s from actuator %s to joint %s (loading twice for state/command)", transmission_info.name.c_str(), transmission_info.type.c_str(), transmission_info.actuators[0].name.c_str(), transmission_info.joints[0].name.c_str());
+                RCLCPP_DEBUG(rclcpp::get_logger(__logger_name), "successfully loaded transmission %s of type %s from actuator %s to joint %s (loading twice for state/command)", transmission_info.name.c_str(), transmission_info.type.c_str(), transmission_info.actuators[0].name.c_str(), transmission_info.joints[0].name.c_str());
 
                 // add transmission to map from actuator names to transmissions; actuators are system interface joints!
                 // transmissions[transmission_info.joints[0].name] = transmission;
@@ -555,7 +559,7 @@ namespace soem_driver
         }
 
         // configure slaves with info from bus and attach SDO setup hooks
-        for (auto &&slave_info : slave_infos)
+        for (auto &slave_info : slave_infos)
         {
             auto slave_it = slaves.find(slave_info.name);
             if (slave_it == slaves.end())
@@ -608,7 +612,7 @@ namespace soem_driver
 
             initialized_slaves.push_back(slave_it->second);
 
-            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "successfully configured slave %s", slave_info.name.c_str());
+            RCLCPP_DEBUG(rclcpp::get_logger(__logger_name), "successfully configured slave %s", slave_info.name.c_str());
         }
 
         // // bring up diagnostics publisher before bus start, to caputure early state
@@ -639,7 +643,7 @@ namespace soem_driver
                 slave_ptr->_RxPDO = ec_slave_da_it->RxPDO;
                 slave_ptr->_TxPDO = ec_slave_da_it->TxPDO;
 
-                RCLCPP_INFO(rclcpp::get_logger(__logger_name), "successfully configured process data access for slave in position %d", slave_ptr->_position_ec_bus);
+                RCLCPP_DEBUG(rclcpp::get_logger(__logger_name), "successfully configured process data access for slave in position %d", slave_ptr->_position_ec_bus);
             }
         }
         catch (const std::exception &e)
@@ -648,8 +652,8 @@ namespace soem_driver
             return CallbackReturn::ERROR;
         }
 
-        // // run after bus start for debugging purposes
-        // run_diagnostics_publisher(diagnostics_cycle_ms);
+        // run after bus start for debugging purposes
+        run_diagnostics_publisher(diagnostics_cycle_ms);
 
         return CallbackReturn::SUCCESS;
     };
@@ -665,7 +669,7 @@ namespace soem_driver
                                                                auto &[name, interfaces] = single_joints_state_interfaces;
                                                                return acc + (transmissions.find(name) != transmissions.end() ? interfaces.size() : 0);
                                                            });
-        RCLCPP_INFO(rclcpp::get_logger(__logger_name), "reserving %zu state interface transmission variables", transmission_values_count);
+        RCLCPP_DEBUG(rclcpp::get_logger(__logger_name), "reserving %zu state interface transmission variables", transmission_values_count);
 
         // allocate state values
         transmission_state_values.resize(transmission_values_count, NAN);
@@ -679,7 +683,7 @@ namespace soem_driver
                             // inject state transmissions
                             if(transmissions.find(name) != transmissions.end())
                             {
-                                RCLCPP_INFO(rclcpp::get_logger(__logger_name), "configuring state interface transmission for joint %s", name.c_str());
+                                RCLCPP_DEBUG(rclcpp::get_logger(__logger_name), "configuring state interface transmission for joint %s", name.c_str());
 
                                 auto state_transmission = std::get<1>(transmissions[name]);
                                 auto transmission_info = std::get<hardware_interface::TransmissionInfo>(transmissions[name]);
@@ -744,6 +748,9 @@ namespace soem_driver
                                         state_transmission_joint_handles,
                                         state_transmission_actuator_handles
                                     );
+                                    
+                                    // initialize transmissions state value from actuator
+                                    state_transmission->actuator_to_joint();
                                 // }
 
                                 // // advance iterator for next transmission
@@ -766,7 +773,7 @@ namespace soem_driver
                             } });
 
         std::for_each(state_interfaces.begin(), state_interfaces.end(), [&](auto &state_iface)
-                      { RCLCPP_INFO(rclcpp::get_logger(__logger_name), "exporting state interface: %s", state_iface.get_name().c_str()); });
+                      { RCLCPP_DEBUG(rclcpp::get_logger(__logger_name), "exporting state interface: %s", state_iface.get_name().c_str()); });
 
         return state_interfaces;
     };
@@ -782,7 +789,7 @@ namespace soem_driver
                                                                auto &[name, interfaces] = single_joints_command_interfaces;
                                                                return acc + (transmissions.find(name) != transmissions.end() ? interfaces.size() : 0);
                                                            });
-        RCLCPP_INFO(rclcpp::get_logger(__logger_name), "reserving %zu command interface transmission variables", transmission_values_count);
+        RCLCPP_DEBUG(rclcpp::get_logger(__logger_name), "reserving %zu command interface transmission variables", transmission_values_count);
 
         // allocate command values
         transmission_command_values.resize(transmission_values_count, NAN);
@@ -796,7 +803,7 @@ namespace soem_driver
                             // inject state transmissions
                             if(transmissions.find(name) != transmissions.end())
                             {
-                                RCLCPP_INFO(rclcpp::get_logger(__logger_name), "configuring command interface transmission for joint %s", name.c_str());
+                                RCLCPP_DEBUG(rclcpp::get_logger(__logger_name), "configuring command interface transmission for joint %s", name.c_str());
 
                                 auto command_transmission = std::get<2>(transmissions[name]);
                                 auto transmission_info = std::get<hardware_interface::TransmissionInfo>(transmissions[name]);
@@ -863,6 +870,9 @@ namespace soem_driver
                                         command_transmission_joint_handles,
                                         command_transmission_actuator_handles
                                     );
+
+                                    // initialize transmissions command value from actuator
+                                    command_transmission->actuator_to_joint();
                                 // }
 
                                 
@@ -886,7 +896,7 @@ namespace soem_driver
                             } });
 
         std::for_each(command_interfaces.begin(), command_interfaces.end(), [&](auto &command_iface)
-                      { RCLCPP_INFO(rclcpp::get_logger(__logger_name), "exporting command interface: %s", command_iface.get_name().c_str()); });
+                      { RCLCPP_DEBUG(rclcpp::get_logger(__logger_name), "exporting command interface: %s", command_iface.get_name().c_str()); });
 
         return command_interfaces;
     };

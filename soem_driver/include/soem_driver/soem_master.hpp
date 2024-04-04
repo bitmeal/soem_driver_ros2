@@ -2,6 +2,7 @@
 #define SOEM_DRIVER__SOEM_MASTER_HPP_
 
 #include <memory>
+#include <cstring>
 #include <vector>
 #include <deque>
 #include <map>
@@ -218,41 +219,99 @@ namespace soem_master
         // SOEM context
         // from ethercatmain.c
         // TODO(bitmeal): wrap in context owning structure
+        typedef struct
+        {
+            ecx_contextt context;
 
-        ec_slavet ec_slave[EC_MAXSLAVE] = {};
-        /** number of slaves found on the network */
-        int ec_slavecount;
-        /** slave group structure */
-        ec_groupt ec_group[EC_MAXGROUP] = {};
+            /* Used by the context */
+            ecx_portt port;
+            ec_slavet slavelist[EC_MAXSLAVE];
+            int slavecount;
+            ec_groupt grouplist[EC_MAXGROUP];
+            uint8 esibuf[EC_MAXEEPBUF];
+            uint32 esimap[EC_MAXEEPBITMAP];
+            ec_eringt elist;
+            ec_idxstackT idxstack;
+            boolean ecaterror;
+            int64 DCtime;
+            ec_SMcommtypet SMcommtype[EC_MAX_MAPT];
+            ec_PDOassignt PDOassign[EC_MAX_MAPT];
+            ec_PDOdesct PDOdesc[EC_MAX_MAPT];
+            ec_eepromSMt eepSM;
+            ec_eepromFMMUt eepFMMU;
+        } Fieldbus;
 
-        /** cache for EEPROM read functions */
-        uint8 ec_esibuf[EC_MAXEEPBUF] = {};
-        /** bitmap for filled cache buffer bytes */
-        uint32 ec_esimap[EC_MAXEEPBITMAP] = {};
-        /** current slave for EEPROM cache buffer */
-        ec_eringt ec_elist = {};
-        ec_idxstackT ec_idxstack = {};
+        static void
+        fieldbus_initialize(Fieldbus *fieldbus)
+        {
+            ecx_contextt *context;
 
-        /** SyncManager Communication Type struct to store data of one slave */
-        ec_SMcommtypet ec_SMcommtype[EC_MAX_MAPT] = {};
-        /** PDO assign struct to store data of one slave */
-        ec_PDOassignt ec_PDOassign[EC_MAX_MAPT] = {};
-        /** PDO description struct to store data of one slave */
-        ec_PDOdesct ec_PDOdesc[EC_MAX_MAPT] = {};
+            /* Let's start by 0-filling `fieldbus` to avoid surprises */
+            memset(fieldbus, 0, sizeof(*fieldbus));
 
-        /** buffer for EEPROM SM data */
-        ec_eepromSMt ec_SM = {};
-        /** buffer for EEPROM FMMU data */
-        ec_eepromFMMUt ec_FMMU = {};
-        /** Global variable TRUE if error available in error stack */
-        boolean EcatError = FALSE;
+            fieldbus->ecaterror = FALSE;
 
-        int64 ec_DCtime;
+            /* Initialize the ecx_contextt data structure */
+            context = &fieldbus->context;
+            context->port = &fieldbus->port;
+            context->slavelist = fieldbus->slavelist;
+            context->slavecount = &fieldbus->slavecount;
+            context->maxslave = EC_MAXSLAVE;
+            context->grouplist = fieldbus->grouplist;
+            context->maxgroup = EC_MAXGROUP;
+            context->esibuf = fieldbus->esibuf;
+            context->esimap = fieldbus->esimap;
+            context->esislave = 0;
+            context->elist = &fieldbus->elist;
+            context->idxstack = &fieldbus->idxstack;
+            context->ecaterror = &fieldbus->ecaterror;
+            context->DCtime = &fieldbus->DCtime;
+            context->SMcommtype = fieldbus->SMcommtype;
+            context->PDOassign = fieldbus->PDOassign;
+            context->PDOdesc = fieldbus->PDOdesc;
+            context->eepSM = &fieldbus->eepSM;
+            context->eepFMMU = &fieldbus->eepFMMU;
+            context->FOEhook = NULL;
+            context->EOEhook = NULL;
+            context->manualstatechange = 0;
+        };
 
-        ecx_portt ecx_port = {};
-        ecx_redportt ecx_redport = {};
+        Fieldbus ec_bus;
 
-        ecx_contextt ecx_context;
+        // ec_slavet ec_slave[EC_MAXSLAVE] = {};
+        // /** number of slaves found on the network */
+        // int ec_slavecount;
+        // /** slave group structure */
+        // ec_groupt ec_group[EC_MAXGROUP] = {};
+
+        // /** cache for EEPROM read functions */
+        // uint8 ec_esibuf[EC_MAXEEPBUF] = {};
+        // /** bitmap for filled cache buffer bytes */
+        // uint32 ec_esimap[EC_MAXEEPBITMAP] = {};
+        // /** current slave for EEPROM cache buffer */
+        // ec_eringt ec_elist = {};
+        // ec_idxstackT ec_idxstack = {};
+
+        // /** SyncManager Communication Type struct to store data of one slave */
+        // ec_SMcommtypet ec_SMcommtype[EC_MAX_MAPT] = {};
+        // /** PDO assign struct to store data of one slave */
+        // ec_PDOassignt ec_PDOassign[EC_MAX_MAPT] = {};
+        // /** PDO description struct to store data of one slave */
+        // ec_PDOdesct ec_PDOdesc[EC_MAX_MAPT] = {};
+
+        // /** buffer for EEPROM SM data */
+        // ec_eepromSMt ec_SM = {};
+        // /** buffer for EEPROM FMMU data */
+        // ec_eepromFMMUt ec_FMMU = {};
+        // /** Global variable TRUE if error available in error stack */
+        // boolean EcatError = FALSE;
+
+        // int64 ec_DCtime;
+
+        // ecx_portt ecx_port = {};
+        // ecx_redportt ecx_redport = {};
+
+        // ecx_contextt ecx_context;
         ////////////////////////////
 
         bool is_init;

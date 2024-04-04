@@ -331,7 +331,7 @@ namespace soem_driver
         std::for_each(slave_mode_switch_response.begin(), slave_mode_switch_response.end(),
                       [&](auto &slave_mode_switch_response)
                       {
-                          RCLCPP_INFO(rclcpp::get_logger(__logger_name), "prepare command mode switch for %s -> %s",
+                          RCLCPP_DEBUG(rclcpp::get_logger(__logger_name), "prepare command mode switch for %s -> %s",
                                       slave_mode_switch_response.first.c_str(),
                                       slave_mode_switch_response.second == hardware_interface::return_type::OK ? "OK" : "ERROR");
                       });
@@ -379,7 +379,7 @@ namespace soem_driver
         std::for_each(slave_mode_switch_response.begin(), slave_mode_switch_response.end(),
                       [&](auto &slave_mode_switch_response)
                       {
-                          RCLCPP_INFO(rclcpp::get_logger(__logger_name), "perform command mode switch for %s -> %s",
+                          RCLCPP_DEBUG(rclcpp::get_logger(__logger_name), "perform command mode switch for %s -> %s",
                                       slave_mode_switch_response.first.c_str(),
                                       slave_mode_switch_response.second == hardware_interface::return_type::OK ? "OK" : "ERROR");
                       });

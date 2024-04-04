@@ -76,7 +76,7 @@ namespace soem_master
                   .missed_cycle_deadline_count = 0,
                   .cycle_count = 0,
                   .state = SOEMMaster::SOEMMasterState::UNINITIALIZED}),
-          IOmap({}),
+        //   IOmap({}),
           RxPDO_working({}),
           RxPDO_transfer(false),
           TxPDO_working({}),
@@ -85,31 +85,31 @@ namespace soem_master
           SMbx_working({}),
           RMbx((std::byte *)EC_RMbx, sizeof(EC_RMbx)),
           RMbx_working({}),
-          ecx_port({}),
-          ecx_context({
-              &ecx_port,         // .port          =
-              &ec_slave[0],      // .slavelist     =
-              &ec_slavecount,    // .slavecount    =
-              EC_MAXSLAVE,       // .maxslave      =
-              &ec_group[0],      // .grouplist     =
-              EC_MAXGROUP,       // .maxgroup      =
-              &ec_esibuf[0],     // .esibuf        =
-              &ec_esimap[0],     // .esimap        =
-              0,                 // .esislave      =
-              &ec_elist,         // .elist         =
-              &ec_idxstack,      // .idxstack      =
-              &EcatError,        // .ecaterror     =
-              &ec_DCtime,        // .DCtime        =
-              &ec_SMcommtype[0], // .SMcommtype    =
-              &ec_PDOassign[0],  // .PDOassign     =
-              &ec_PDOdesc[0],    // .PDOdesc       =
-              &ec_SM,            // .eepSM         =
-              &ec_FMMU,          // .eepFMMU       =
-              NULL,              // .FOEhook()
-              NULL,              // .EOEhook()
-              0,                 // .manualstatechange
-              NULL,              // .userdata
-          }),
+        //   ecx_port({}),
+        //   ecx_context({
+        //       &ecx_port,         // .port          =
+        //       &ec_slave[0],      // .slavelist     =
+        //       &ec_slavecount,    // .slavecount    =
+        //       EC_MAXSLAVE,       // .maxslave      =
+        //       &ec_group[0],      // .grouplist     =
+        //       EC_MAXGROUP,       // .maxgroup      =
+        //       &ec_esibuf[0],     // .esibuf        =
+        //       &ec_esimap[0],     // .esimap        =
+        //       0,                 // .esislave      =
+        //       &ec_elist,         // .elist         =
+        //       &ec_idxstack,      // .idxstack      =
+        //       &EcatError,        // .ecaterror     =
+        //       &ec_DCtime,        // .DCtime        =
+        //       &ec_SMcommtype[0], // .SMcommtype    =
+        //       &ec_PDOassign[0],  // .PDOassign     =
+        //       &ec_PDOdesc[0],    // .PDOdesc       =
+        //       &ec_SM,            // .eepSM         =
+        //       &ec_FMMU,          // .eepFMMU       =
+        //       NULL,              // .FOEhook()
+        //       NULL,              // .EOEhook()
+        //       0,                 // .manualstatechange
+        //       NULL,              // .userdata
+        //   }),
           is_init(false),
           cycle_counter(0),
           cyclic_master({}),
@@ -117,15 +117,18 @@ namespace soem_master
           cyclic_master_running(false)
 
     {
+        // init bus data structure
+        fieldbus_initialize(&ec_bus);
+
         // register to resolve instance from context pointer
-        SOEMCtxMasterMapping.insert(std::pair<ecx_contextt *, std::reference_wrapper<SOEMMaster>>(&ecx_context, std::ref(*this)));
+        SOEMCtxMasterMapping.insert(std::pair<ecx_contextt *, std::reference_wrapper<SOEMMaster>>(&ec_bus.context, std::ref(*this)));
     };
     SOEMMaster::~SOEMMaster()
     {
         deinit();
 
         // unregister for resolution from context pointer
-        SOEMCtxMasterMapping.erase(&ecx_context);
+        SOEMCtxMasterMapping.erase(&ec_bus.context);
         RCLCPP_INFO(rclcpp::get_logger(__logger_name), "unregistered SOEM master instance: %ld left", SOEMCtxMasterMapping.size());
     };
 
@@ -133,33 +136,33 @@ namespace soem_master
     void SOEMMaster::init(const std::string &interface)
     {
         // init and open interface
-        if (ecx_init(&ecx_context, interface.c_str()))
+        if (ecx_init(&ec_bus.context, interface.c_str()))
         {
             RCLCPP_INFO(rclcpp::get_logger(__logger_name), "initialized EtherCAT communication on interface %s", interface.c_str());
 
             // find and auto_configure slaves to PRE_OP
-            if (ecx_config_init(&ecx_context, FALSE) > 0)
+            if (ecx_config_init(&ec_bus.context, FALSE) > 0)
             {
-                RCLCPP_INFO(rclcpp::get_logger(__logger_name), "found %d slaves", ec_slavecount);
-                ecx_readstate(&ecx_context);
+                RCLCPP_INFO(rclcpp::get_logger(__logger_name), "found %d slaves", ec_bus.slavecount);
+                ecx_readstate(&ec_bus.context);
                 ec_log_slaves();
 
                 // indexing at 1 with bus addresses; slave[0] is whole group/bus
-                for (auto slave_idx : std::ranges::views::iota(1, ec_slavecount + 1))
+                for (auto slave_idx : std::ranges::views::iota(1, ec_bus.slavecount + 1))
                 {
                     _slaves.push_back({
-                        .vendor_id = ec_slave[slave_idx].eep_man,
-                        .product_code = ec_slave[slave_idx].eep_id,
-                        .revision_number = ec_slave[slave_idx].eep_rev,
+                        .vendor_id = ec_bus.slavelist[slave_idx].eep_man,
+                        .product_code = ec_bus.slavelist[slave_idx].eep_id,
+                        .revision_number = ec_bus.slavelist[slave_idx].eep_rev,
 
                         // .position = ec_slave[slave_idx].configadr,
                         .position = slave_idx,
-                        .alias = ec_slave[slave_idx].aliasadr,
+                        .alias = ec_bus.slavelist[slave_idx].aliasadr,
 
-                        .name = ec_slave[slave_idx].name,
+                        .name = ec_bus.slavelist[slave_idx].name,
 
-                        .RxPDO_size = (size_t)(ec_slave[slave_idx].Obits / CHAR_WIDTH) + ec_slave[slave_idx].Obits % CHAR_WIDTH,
-                        .TxPDO_size = (size_t)(ec_slave[slave_idx].Ibits / CHAR_WIDTH) + ec_slave[slave_idx].Ibits % CHAR_WIDTH,
+                        .RxPDO_size = (size_t)(ec_bus.slavelist[slave_idx].Obits / CHAR_WIDTH) + ec_bus.slavelist[slave_idx].Obits % CHAR_WIDTH,
+                        .TxPDO_size = (size_t)(ec_bus.slavelist[slave_idx].Ibits / CHAR_WIDTH) + ec_bus.slavelist[slave_idx].Ibits % CHAR_WIDTH,
                     });
                 }
             }
@@ -191,7 +194,7 @@ namespace soem_master
         if (is_init)
         {
             bus_down_SAFE_OP();
-            ecx_close(&ecx_context);
+            ecx_close(&ec_bus.context);
             RCLCPP_INFO(rclcpp::get_logger(__logger_name), "closed EtherCAT communication");
         }
 
@@ -218,14 +221,14 @@ namespace soem_master
         //                                     });
 
         IOmap.resize(IOmap_size, std::byte(0x00));
-        ecx_config_overlap_map_group(&ecx_context, IOmap.data(), 0);
+        ecx_config_overlap_map_group(&ec_bus.context, IOmap.data(), 0);
 
         // setup RxPDO/TxPDO non-owning buffer types and working buffers, copy IOmap content to buffers
-        RxPDO_IOmap = {(std::byte *)(void *)(ec_group[0].outputs), ec_group[0].Obytes};
+        RxPDO_IOmap = {reinterpret_cast<soem_driver::buffer::pointer>(ec_bus.grouplist[0].outputs), ec_bus.grouplist[0].Obytes};
         RxPDO_working.resize(RxPDO_IOmap.size());
         std::copy(RxPDO_IOmap.begin(), RxPDO_IOmap.end(), RxPDO_working.begin());
 
-        TxPDO_IOmap = {(std::byte *)(void *)(ec_group[0].inputs), ec_group[0].Ibytes};
+        TxPDO_IOmap = {reinterpret_cast<soem_driver::buffer::pointer>(ec_bus.grouplist[0].inputs), ec_bus.grouplist[0].Ibytes};
         TxPDO_working.resize(TxPDO_IOmap.size());
         std::copy(TxPDO_IOmap.begin(), TxPDO_IOmap.end(), TxPDO_working.begin());
 
@@ -235,19 +238,19 @@ namespace soem_master
         // _slaves_data_access.reserve(slaves.size());
         for (auto &slave : _slaves)
         {
-            SMbx_working[slave.position - 1].resize(ec_slave[slave.position].mbx_l, std::byte(0x00));
-            RMbx_working[slave.position - 1].resize(ec_slave[slave.position].mbx_rl, std::byte(0x00));
+            SMbx_working[slave.position - 1].resize(ec_bus.slavelist[slave.position].mbx_l, std::byte(0x00));
+            RMbx_working[slave.position - 1].resize(ec_bus.slavelist[slave.position].mbx_rl, std::byte(0x00));
             _slaves_data_access.emplace_back(slave, getRxPDO(slave), getTxPDO(slave), getSMbx(slave), getRMbx(slave));
         }
 
         /* wait for all slaves to reach SAFE_OP state */
-        ecx_statecheck(&ecx_context, 0, EC_STATE_SAFE_OP, EC_TIMEOUTSTATE);
+        ecx_statecheck(&ec_bus.context, 0, EC_STATE_SAFE_OP, EC_TIMEOUTSTATE);
         /* configure DC options for every DC capable slave found in the list */
-        ecx_configdc(&ecx_context);
+        ecx_configdc(&ec_bus.context);
 
         // /* read individual slave state and store in ec_slave[] */
-        ecx_readstate(&ecx_context);
-        if (ec_slave[0].state != EC_STATE_SAFE_OP)
+        ecx_readstate(&ec_bus.context);
+        if (ec_bus.slavelist[0].state != EC_STATE_SAFE_OP)
         {
             if (!cyclic_master_running.load())
             {
@@ -269,25 +272,25 @@ namespace soem_master
         RCLCPP_INFO(rclcpp::get_logger(__logger_name), "requesting OP state for all slaves");
 
         // execute one bus cycle
-        ecx_send_overlap_processdata_group(&ecx_context, 0);
-        ecx_receive_processdata(&ecx_context, EC_TIMEOUTRET);
+        ecx_send_overlap_processdata_group(&ec_bus.context, 0);
+        ecx_receive_processdata(&ec_bus.context, EC_TIMEOUTRET);
 
         // request OP state and wait for slaves to reach
-        ec_slave[0].state = EC_STATE_OPERATIONAL;
-        ecx_writestate(&ecx_context, 0);
+        ec_bus.slavelist[0].state = EC_STATE_OPERATIONAL;
+        ecx_writestate(&ec_bus.context, 0);
 
         int max_OP_PD = 200;
         /* wait for all slaves to reach OP state */
         do
         {
-            ecx_send_overlap_processdata_group(&ecx_context, 0);
-            ecx_receive_processdata(&ecx_context, EC_TIMEOUTRET);
-            ecx_statecheck(&ecx_context, 0, EC_STATE_OPERATIONAL, 50000);
-            // ecx_statecheck(&ecx_context, 0, EC_STATE_OPERATIONAL, 5 * EC_TIMEOUTSTATE);
-        } while (max_OP_PD-- && (ec_slave[0].state != EC_STATE_OPERATIONAL));
-        ecx_readstate(&ecx_context);
+            ecx_send_overlap_processdata_group(&ec_bus.context, 0);
+            ecx_receive_processdata(&ec_bus.context, EC_TIMEOUTRET);
+            ecx_statecheck(&ec_bus.context, 0, EC_STATE_OPERATIONAL, 50000);
+            // ecx_statecheck(&ec_bus.context, 0, EC_STATE_OPERATIONAL, 5 * EC_TIMEOUTSTATE);
+        } while (max_OP_PD-- && (ec_bus.slavelist[0].state != EC_STATE_OPERATIONAL));
+        ecx_readstate(&ec_bus.context);
 
-        if (ec_slave[0].state != EC_STATE_OPERATIONAL)
+        if (ec_bus.slavelist[0].state != EC_STATE_OPERATIONAL)
         {
             if (!cyclic_master_running.load())
             {
@@ -312,8 +315,8 @@ namespace soem_master
     {
 
         RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Requesting SAFE_OP for all slaves");
-        ec_slave[0].state = EC_STATE_SAFE_OP;
-        ecx_writestate(&ecx_context, 0);
+        ec_bus.slavelist[0].state = EC_STATE_SAFE_OP;
+        ecx_writestate(&ec_bus.context, 0);
 
         if (!cyclic_master_running.load())
         {
@@ -355,7 +358,7 @@ namespace soem_master
             }
 
             // read/write process data
-            if (ecx_send_overlap_processdata_group(&ecx_context, 0) <= 0)
+            if (ecx_send_overlap_processdata_group(&ec_bus.context, 0) <= 0)
             {
                 if (status.tx_error_count_consecutive == 0)
                 {
@@ -380,7 +383,7 @@ namespace soem_master
                 status.tx_error_count_consecutive = 0;
             }
 
-            if (ecx_receive_processdata(&ecx_context, timeout_process_data.count()) <= 0)
+            if (ecx_receive_processdata(&ec_bus.context, timeout_process_data.count()) <= 0)
             {
                 if (status.rx_error_count_consecutive == 0)
                 {
@@ -414,16 +417,16 @@ namespace soem_master
             }
 
             // handle mailboxes
-            for (auto &&slave_da : _slaves_data_access)
+            for (auto &slave_da : _slaves_data_access)
             {
                 // send mailbox
                 if (slave_da.send_mbx_request.load())
                 {
                     // load data to send buffer; SMbx is buffer view to EC_SMbx
                     ec_clearmbx(&EC_SMbx);
-                    std::copy(slave_da.SMbx.begin(), slave_da.SMbx.end(), SMbx.begin());
+                    std::copy_n(slave_da.SMbx.begin(), std::min(slave_da.SMbx.size(), SMbx.size()), SMbx.begin());
 
-                    if (0 < ecx_mbxsend(&ecx_context, slave_da.slave_info.position, &EC_SMbx, timeout_mbx_send.count()))
+                    if (0 < ecx_mbxsend(&ec_bus.context, slave_da.slave_info.position, &EC_SMbx, timeout_mbx_send.count()))
                     {
                         // success; reset request
                         slave_da.send_mbx_request.store(false);
@@ -437,8 +440,8 @@ namespace soem_master
                     ec_clearmbx(&EC_RMbx);
                     bool mbx_raw = slave_da.receive_mbx_raw.load();
                     if (
-                        (mbx_raw && 0 <= ecx_mbxreceive(&ecx_context, slave_da.slave_info.position, &EC_RMbx, timeout_mbx_receive.count())) ||
-                        (!mbx_raw && 0 < ecx_mbxreceive(&ecx_context, slave_da.slave_info.position, &EC_RMbx, timeout_mbx_receive.count())))
+                        (mbx_raw && 0 <= ecx_mbxreceive(&ec_bus.context, slave_da.slave_info.position, &EC_RMbx, timeout_mbx_receive.count())) ||
+                        (!mbx_raw && 0 < ecx_mbxreceive(&ec_bus.context, slave_da.slave_info.position, &EC_RMbx, timeout_mbx_receive.count())))
                     {
                         // load data to slaves receive buffer; RMbx is buffer view to EC_RMbx
                         std::copy_n(RMbx.begin(), slave_da.RMbx.size(), slave_da.RMbx.begin());
@@ -451,16 +454,16 @@ namespace soem_master
                         slave_da.receive_mbx.store(false);
 
                         // reset error raised by reading raw mailboxes
-                        if (mbx_raw && ecx_iserror(&ecx_context))
+                        if (mbx_raw && ecx_iserror(&ec_bus.context))
                         {
                             // pop last error; but back in list, if not from mailbox operation
                             ec_errort ECErr;
-                            ecx_poperror(&ecx_context, &ECErr);
+                            ecx_poperror(&ec_bus.context, &ECErr);
 
                             if (!(ECErr.Slave == slave_da.slave_info.position && (ECErr.Etype == EC_ERR_TYPE_MBX_ERROR ||
                                                                                 ECErr.Etype == EC_ERR_TYPE_EMERGENCY)))
                             {
-                                ecx_pusherror(&ecx_context, &ECErr);
+                                ecx_pusherror(&ec_bus.context, &ECErr);
                             }
                         }
                     }
@@ -468,12 +471,12 @@ namespace soem_master
             }
 
             // check for EtherCAT errors in SOEM
-            if (ecx_iserror(&ecx_context))
+            if (ecx_iserror(&ec_bus.context))
             {
                 // count errors and clear list
                 size_t count = 0;
                 ec_errort _;
-                while (ecx_poperror(&ecx_context, &_))
+                while (ecx_poperror(&ec_bus.context, &_))
                 {
                     // TODO(bitmeal): how to handle informative logging
                     count++;
@@ -579,23 +582,23 @@ namespace soem_master
     void SOEMMaster::slave_attach_SDO_setup_hook(const SOEMEcSlaveInfo &slave, std::function<void(soem_driver::SDOwrite_t)> hook_fn)
     {
         SDO_setup_hook_store[slave.position] = hook_fn;
-        ec_slave[slave.position].PO2SOconfigx = fnptr_call_SOEMMaster_member<&SOEMMaster::call_slave_SDO_setup_hook>;
+        ec_bus.slavelist[slave.position].PO2SOconfigx = fnptr_call_SOEMMaster_member<&SOEMMaster::call_slave_SDO_setup_hook>;
     };
 
     // get buffer to working set of slaves RxPDO
     // call after calling start_bus() only!
     const soem_driver::buffer SOEMMaster::getRxPDO(SOEMEcSlaveInfo slave)
     {
-        size_t slave_outputs_offset = ec_slave[slave.position].outputs - ec_group[0].outputs;
-        return {RxPDO_working.data() + slave_outputs_offset, ec_slave[slave.position].Obytes};
+        size_t slave_outputs_offset = ec_bus.slavelist[slave.position].outputs - ec_bus.grouplist[0].outputs;
+        return {RxPDO_working.data() + slave_outputs_offset, ec_bus.slavelist[slave.position].Obytes};
     };
 
     // get buffer to working set of slaves TxPDO
     // call after calling start_bus() only!
     const soem_driver::buffer SOEMMaster::getTxPDO(SOEMEcSlaveInfo slave)
     {
-        size_t slave_inputs_offset = ec_slave[slave.position].inputs - ec_group[0].inputs;
-        return {TxPDO_working.data() + slave_inputs_offset, ec_slave[slave.position].Ibytes};
+        size_t slave_inputs_offset = ec_bus.slavelist[slave.position].inputs - ec_bus.grouplist[0].inputs;
+        return {TxPDO_working.data() + slave_inputs_offset, ec_bus.slavelist[slave.position].Ibytes};
     };
 
     const soem_driver::buffer SOEMMaster::getSMbx(SOEMEcSlaveInfo slave)
@@ -619,7 +622,7 @@ namespace soem_master
             auto sdo_write_fn = [&](uint16_t index, uint8_t sub_index, soem_driver::buffer data, bool complete_access)
             {
                 // wkc += SDOwrite_slave(slave, index, sub_index, data, complete_access);
-                wkc += ecx_SDOwrite(&ecx_context, slave_position, index, sub_index, complete_access, data.size_bytes(), data.data(), EC_TIMEOUTSAFE);
+                wkc += ecx_SDOwrite(&ec_bus.context, slave_position, index, sub_index, complete_access, data.size_bytes(), data.data(), EC_TIMEOUTSAFE);
             };
 
             // call slaves setup hook
@@ -630,9 +633,9 @@ namespace soem_master
 
     void SOEMMaster::ec_log_slaves()
     {
-        for (auto slave_idx : std::ranges::views::iota(1, ec_slavecount + 1))
+        for (auto slave_idx : std::ranges::views::iota(1, ec_bus.slavecount + 1))
         {
-            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Slave %3i [%-7s] %s (%s)", slave_idx, ec_state_to_string(ec_slave[slave_idx].state).c_str(), ec_slave[slave_idx].name, ec_ALstatuscode2string(ec_slave[slave_idx].ALstatuscode));
+            RCLCPP_INFO(rclcpp::get_logger(__logger_name), "Slave %3i [%-7s] %s (%s)", slave_idx, ec_state_to_string(ec_bus.slavelist[slave_idx].state).c_str(), ec_bus.slavelist[slave_idx].name, ec_ALstatuscode2string(ec_bus.slavelist[slave_idx].ALstatuscode));
         }
     };
 
