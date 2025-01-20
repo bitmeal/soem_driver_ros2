@@ -12,17 +12,9 @@
 
 #include "rclcpp/rclcpp.hpp"
 
-// #define TRINAMICTMCM1610_INIT_VELOCITY 100
-// #define TRINAMICTMCM1610_HOME_VELOCITY 100
 
 #define TRINAMICTMCM1610_HALT_AXIS_VEL_EPS_RPM_DEFAULT 2
 #define TRINAMICTMCM1610_ZERO_AXIS_POS_EPS_TICKS_DEFAULT 10
-
-// #define TRINAMICTMCM1610_BACKOFF_VELOCITY 25
-// #define TRINAMICTMCM1610_HOME_AXIS_TICKS_BACKOFF 500
-// #define TRINAMICTMCM1610_EFFORT_RELEASE_VELOCITY 25
-// #define TRINAMICTMCM1610_EFFORT_RELEASE_MA_THRESH 100
-
 
 namespace soem_slave_modules
 {
@@ -246,7 +238,6 @@ namespace soem_slave_modules
         hfsmS(Initialize);
         hfsmS(HomeAxis);
         hfsmS(BackoffAxis);
-        // hfsmS(ReleaseEffort);
         hfsmS(HaltAxis);
         hfsmS(ZeroAxisPosition);
         hfsmS(MotionC);
@@ -296,15 +287,7 @@ namespace soem_slave_modules
                              hfsmS(HomeAxis),
                              hfsmS(HaltAxis),
                              hfsmS(BackoffAxis),
-                            //  hfsmS(ReleaseEffort),
                              hfsmS(ZeroAxisPosition)>;
-
-        // using FSM_Ortho_Motion =
-        //     FSM_t::OrthogonalPeers<
-        //         FSM_t::Composite<hfsmS(MotionInit),
-        //                          hfsmS(Initialize),
-        //                          FSM_Region_Motion_Run>,
-        //         hfsmS(ResetTimeout)>;
 
         // machine
         using FSM = FSM_t::
@@ -657,8 +640,6 @@ namespace soem_slave_modules
             {
                 RxPDO_t RxPDO_map;
 
-                // RxPDO_map.mode = (uint8_t)COMMAND_MODE::VELOCITY;
-                // RxPDO_map.setpoint = (int32_t)(std::copysign(control.context().homing_velocity_rpm, control.context().homing_backoff_rev));
                 RxPDO_map.mode = (uint8_t)COMMAND_MODE::POSITION;
                 RxPDO_map.setpoint = (int32_t)(control.context().homing_backoff_rev * control.context().encoder_ticks);
 
@@ -671,46 +652,6 @@ namespace soem_slave_modules
             // ignore events
             using FSM::State::react;
         };
-
-        // hfsmS_t(ReleaseEffort)
-        // {
-        //     void enter(Control & control)
-        //     {
-        //         RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM [Motion] entering: %s", "Release Effort");
-        //     };
-
-        //     void react(const fsmEvent_Read &txpdo_read_event, EventControl &control)
-        //     {
-        //         if(
-        //             (0 <= control.context().homing_current_limit && txpdo_read_event.txpdo.current_ma <= -TRINAMICTMCM1610_EFFORT_RELEASE_MA_THRESH) ||
-        //             (control.context().homing_current_limit < 0 && TRINAMICTMCM1610_EFFORT_RELEASE_MA_THRESH <= txpdo_read_event.txpdo.current_ma)
-        //         )
-        //         // if(
-        //         //     (0 <= control.context().homing_current_limit && txpdo_read_event.txpdo.current_ma <= 0) ||
-        //         //     (control.context().homing_current_limit < 0 && 0 <= txpdo_read_event.txpdo.current_ma)
-        //         // )
-        //         {
-        //             RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Released Effort successfuly");
-        //             control.succeed();
-        //         }
-        //     };
-
-        //     void react(const fsmEvent_Write &, EventControl &control)
-        //     {
-        //         RxPDO_t RxPDO_map;
-
-        //         RxPDO_map.mode = (uint8_t)COMMAND_MODE::VELOCITY;
-        //         RxPDO_map.setpoint = (int32_t)(-1 * std::copysign(TRINAMICTMCM1610_EFFORT_RELEASE_VELOCITY, control.context().homing_current_limit));
-
-        //         soem_driver::buffer RxPDO_map_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&RxPDO_map), sizeof(RxPDO_map)};
-        //         std::copy_n(RxPDO_map_buffer.begin(), std::min(RxPDO_map_buffer.size(), control.context().RxPDO.size()), control.context().RxPDO.begin());
-        //     };
-
-        //     // // use empty update method
-        //     // using FSM::State::update;
-        //     // ignore events
-        //     using FSM::State::react;
-        // };
 
         // struct HaltAxis : public Stop_t
         hfsmS_t(HaltAxis)
@@ -792,40 +733,6 @@ namespace soem_slave_modules
             // ignore other events
             using FSM::State::react;
         };
-
-        // hfsmS_t(ZeroAxisPosition)
-        // {
-        //     void enter(Control & control)
-        //     {
-        //         RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Driver FSM [Motion] entering: %s", "Zero Axis Position");
-        //     };
-
-        //     void react(const fsmEvent_Read &txpdo_read_event, EventControl &control)
-        //     {
-        //         // account for small deviations from residual movements and don't require exact 0
-        //         if (std::fabs(txpdo_read_event.txpdo.position_ticks) < 2)
-        //         {
-        //             RCLCPP_INFO(rclcpp::get_logger(control.context().__logger_name), "Set Axis Position = 0 successfuly");
-        //             control.succeed();
-        //         }
-        //     };
-
-        //     void react(const fsmEvent_Write &, EventControl &control)
-        //     {
-        //         RxPDO_t RxPDO_map;
-
-        //         RxPDO_map.mode = (uint8_t)COMMAND_MODE::SET_REFERENCE;
-        //         RxPDO_map.setpoint = 0;
-
-        //         soem_driver::buffer RxPDO_map_buffer{reinterpret_cast<soem_driver::buffer::pointer>(&RxPDO_map), sizeof(RxPDO_map)};
-        //         std::copy(RxPDO_map_buffer.begin(), RxPDO_map_buffer.end(), control.context().RxPDO.begin());
-        //     };
-
-        //     // // use empty update method
-        //     // using FSM::State::update;
-        //     // ignore events
-        //     using FSM::State::react;
-        // };
 
         // cyclic motion execution region; switches state to current command mode on update() calls
         hfsmS_t(MotionC)
@@ -1132,7 +1039,6 @@ namespace soem_slave_modules
 
         void setup_SDO_hook(soem_driver::SDOwrite_t /* SDOwrite */) override{
             // no SDO setup hook from PO --> SO necessary
-            // RCLCPP_INFO(rclcpp::get_logger(__logger_name), "trinamic_tmcm1610 - call to: %s", __FUNCTION__);
         };
 
         void log_command_mode_switch_interfaces_error(
@@ -1287,27 +1193,24 @@ namespace soem_slave_modules
             // RCLCPP_INFO(rclcpp::get_logger(__logger_name), "sizeof(TxPDO_map): %zu, TxPDO_map_buffer.size(): %zu, TxPDO.size(): %zu", sizeof(TxPDO_map), TxPDO_map_buffer.size(), TxPDO.size());
 
 
-            // state_interfaces = {
-                // position_ticks [ticks] (encoder ticks)
-                // state_interface [rad]
-                // state_interface = position_ticks * 2 * PI  / encoder_ticks
-                state_interfaces[(size_t)HARDWARE_INTERFACES::POSITION] = TxPDO_map.position_ticks * 2 * std::numbers::pi / encoder_ticks;
-                // TxPDO_map.position_ticks * 2 * std::numbers::pi / encoder_ticks,
-                // vel_rpm [rpm]|[1/min] (motor spindle)
-                // state_interface [rad/s]
-                // state_interface = vel_rpm * 2 * PI / 60
-                state_interfaces[(size_t)HARDWARE_INTERFACES::VELOCITY] = TxPDO_map.vel_rpm * 2 * std::numbers::pi / 60;
-                // TxPDO_map.vel_rpm * 2 * std::numbers::pi / 60,
-                // torque_constant [Nm/A]
-                // current_ma [mA]
-                // state_interface [Nm]
-                // state_interface = current_ma * torque_constant / 1000
-                state_interfaces[(size_t)HARDWARE_INTERFACES::EFFORT] = TxPDO_map.current_ma * torque_constant / 1000;
-                // TxPDO_map.current_ma * torque_constant / 1000,
+            // position_ticks [ticks] (encoder ticks)
+            // state_interface [rad]
+            // state_interface = position_ticks * 2 * PI  / encoder_ticks
+            state_interfaces[(size_t)HARDWARE_INTERFACES::POSITION] = TxPDO_map.position_ticks * 2 * std::numbers::pi / encoder_ticks;
+            // TxPDO_map.position_ticks * 2 * std::numbers::pi / encoder_ticks,
+            // vel_rpm [rpm]|[1/min] (motor spindle)
+            // state_interface [rad/s]
+            // state_interface = vel_rpm * 2 * PI / 60
+            state_interfaces[(size_t)HARDWARE_INTERFACES::VELOCITY] = TxPDO_map.vel_rpm * 2 * std::numbers::pi / 60;
+            // TxPDO_map.vel_rpm * 2 * std::numbers::pi / 60,
+            // torque_constant [Nm/A]
+            // current_ma [mA]
+            // state_interface [Nm]
+            // state_interface = current_ma * torque_constant / 1000
+            state_interfaces[(size_t)HARDWARE_INTERFACES::EFFORT] = TxPDO_map.current_ma * torque_constant / 1000;
+            // TxPDO_map.current_ma * torque_constant / 1000,
 
-                // TODO(bitmeal): read gripper position if has gripper
-            //     NAN
-            // };
+            // TODO(bitmeal): read gripper position if has gripper
 
             // make state machine react to hardware state & update state machine
             fsm->react(fsmEvent_Read{.txpdo = TxPDO_map});
